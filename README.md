@@ -84,7 +84,7 @@ enable_y_scrambling = True     # perform Y-scrambling for significance testing
 Outputs (predictions, plots, logs) will appear under the `outputs/` and `predictions/` directories.
 
  🖥️ Requirements
-- **OS**: Windows 10/11 x64
+- **OS**: Windows 11 x64
 - **Python**: 3.13.0 (64-bit, Conda recommended)  
 - **Conda**: ≥23  
 - **Windows runtime**: [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe)
