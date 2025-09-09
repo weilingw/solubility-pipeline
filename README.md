@@ -60,17 +60,14 @@ solubility-pipeline/
 
 ├── outputs/
 
-│   └─── predictions/          # generated here during runs
-
-└── └── summary_metrics.csv
-
-=======
+│ └───── predictions/          # generated here during runs
+└── summary_metrics.csv
 
 ### 🔧 Configuration (Global Settings)
 
 Before running, open `Pipeline/main_model.py` and adjust the global settings at the top of the file:
 
-```python
+python
 # === Global Settings ===
 model_type = 'rf'              # 'rf', 'xgb', 'svm'
 descriptor_type = 'moe'      # 'morgan', 'mordred', 'moe', 'rdkit'
@@ -82,20 +79,15 @@ enable_y_scrambling = True     # perform Y-scrambling for significance testing
 
 Outputs (predictions, plots, logs) will appear under the `outputs/` and `predictions/` directories.
 
----
-
-## 🖥️ Requirements
+ 🖥️ Requirements
 - **OS**: Windows 10/11 x64
 - **Python**: 3.13.0 (64-bit, Conda recommended)  
 - **Conda**: ≥23  
 - **Windows runtime**: [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe)
 
----
 
 ## 📜 Citation
 If you use this pipeline in academic work, please cite:
----
-```
+
 [TODO: add the paper reference]
-```
->>>>>>> 59daeda (Update README with configuration section and usage instructions)
+59daeda (Update README with configuration section and usage instructions)
