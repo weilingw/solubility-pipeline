@@ -30,23 +30,41 @@ conda activate clean-rdkit-env
 
 ## 📂 Repository Structure
 solubility-pipeline/
+
 ├── main_model.py
+
 ├── merics.py
+
 ├── plots.py
+
 ├── r2_scrambling.py
+
 ├── combined_y_scrambling_plot.py
+
 ├── visualizer.py
+
 ├── bit_analysis.py
+
 ├── pca_rdkit.py
+
 ├── moe_shap_heatmap.py
+
 ├── rdkit_shap_heatmap.py
+
 ├── mordred_shap_heatmap.py
+
 ├── requirements.txt
+
 ├── README.md
+
 ├── example_data/
+
 │ └── final_filtered_descriptors.txt # input file
+
 ├── outputs/
+
 │ └── predictions/ # generated here during runs
+
 └── summary_metrics.csv # summary metrics
 ### 🔧 Configuration (Global Settings)
 
