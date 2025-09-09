@@ -4,7 +4,7 @@ This repository provides a reproducible **machine learning pipeline for solubili
 It supports **10-fold CV** and **Leave-One-Solute-Out (LOSO) CV**, hybrid mode with COSMO-RS features, and interpretability via SHAP analysis and Morgan fingerprint visualisation.
 
 
-## 🚀 Installation
+## Installation
 ### Option 1: Use packed environment (recommended)
 Download [`clean-rdkit-env.tar.gz`](https://github.com/weilingw/solubility-pipeline/releases) from the Releases page and unpack:
 
@@ -28,7 +28,7 @@ conda activate clean-rdkit-env
 > **Note:** Plain `env.yml` may not exactly reproduce the same builds across machines.  
 > For stability, prefer the packed tarball or `env-explicit.txt`.
 
-## 📂 Repository Structure
+## Repository Structure
 solubility-pipeline/
 
 ├── main_model.py
@@ -66,7 +66,7 @@ solubility-pipeline/
 │ └── predictions/ # generated here during runs
 
 └── summary_metrics.csv # summary metrics
-### 🔧 Configuration (Global Settings)
+### Configuration (Global Settings)
 
 Before running, open `Pipeline/main_model.py` and adjust the global settings at the top of the file:
 
@@ -83,7 +83,7 @@ enable_y_scrambling = True     # perform Y-scrambling for significance testing
 
 Outputs (predictions, plots, logs) will appear under the `outputs/` and `predictions/` directories.
 
- 🖥️ Requirements
+Requirements
 - **OS**: Windows 11 x64
 - **Python**: 3.13.0 (64-bit, Conda recommended)  
 - **Conda**: ≥23  
