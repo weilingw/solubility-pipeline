@@ -4,32 +4,30 @@ This repository provides a reproducible **machine learning pipeline for solubili
 It supports **10-fold CV** and **Leave-One-Solute-Out (LOSO) CV**, hybrid mode with COSMO-RS features, and interpretability via SHAP analysis and Morgan fingerprint visualisation.
 
 
-
-Install the environment
+Install the environment: 
 
 Option 1 (recommended).
-
-Download clean-rdkit-env.tar.gz from the Releases page.
-Unpack and activate:
-mkdir C:\envs\clean-rdkit-env
-tar -xzf clean-rdkit-env.tar.gz -C C:\envs\clean-rdkit-env
-C:\envs\clean-rdkit-env\Scripts\activate
-conda-unpack
-Run:
-C:\envs\clean-rdkit-env\python.exe -u Pipeline/main_model.py
+Download clean-rdkit-env.tar.gz from the Releases page. 
+Unpack and activate: 
+mkdir C:\envs\clean-rdkit-env; 
+tar -xzf clean-rdkit-env.tar.gz -C C:\envs\clean-rdkit-env; 
+C:\envs\clean-rdkit-env\Scripts\activate; 
+conda-unpack; 
+Run: 
+C:\envs\clean-rdkit-env\python.exe -u Pipeline/main_model.py. 
 
 Option 2:
-Create from explicit spec
-conda create -n clean-rdkit-env --file env-explicit.txt
-conda activate clean-rdkit-env
-Note: Plain env.yml may resolve to newer builds and is not guaranteed to reproduce the exact working environment.
+Create from explicit spec; 
+conda create -n clean-rdkit-env --file env-explicit.txt; 
+conda activate clean-rdkit-env; 
+Note: Plain env.yml may resolve to newer builds and is not guaranteed to reproduce the exact working environment. 
 For stability, use the packed tarball or env-explicit.txt.
 
 
-System Requirements
-OS: Windows 11 x64
-Python: 3.13.0
-Windows runtime: Microsoft Visual C++ 2015–2022 Redistributable
+System Requirements: 
+OS: Windows 11 x64;
+Python: 3.13.0;
+Windows runtime: Microsoft Visual C++ 2015–2022 Redistributable.
 
 
 Repository Structure
