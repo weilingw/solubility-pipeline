@@ -60,17 +60,17 @@ solubility-pipeline/
 
 ├── outputs/
 
-│ └───── predictions/          # generated here during runs
+│ └── predictions/          # generated here during runs
 └── summary_metrics.csv
 
 ### 🔧 Configuration (Global Settings)
 
 Before running, open `Pipeline/main_model.py` and adjust the global settings at the top of the file:
 
-python
+```python
 # === Global Settings ===
 model_type = 'rf'              # 'rf', 'xgb', 'svm'
-descriptor_type = 'moe'      # 'morgan', 'mordred', 'moe', 'rdkit'
+descriptor_type = 'moe'        # 'morgan', 'mordred', 'moe', 'rdkit'
 use_hybrid_mode = True         # include COSMO features as hybrid input
 use_random_search = True       # enable RandomizedSearchCV hyperparameter tuning
 use_bit_visualization = False  # only used for Morgan fingerprints
