@@ -8,18 +8,22 @@ It supports **10-fold CV** and **Leave-One-Solute-Out (LOSO) CV**, hybrid mode w
 
 ### Option 1: Use packed environment (recommended)
 Download [`clean-rdkit-env.tar.gz`](https://github.com/weilingw/solubility-pipeline/releases) from the Releases page and unpack:
-Unpack and activate: 
-mkdir C:\envs\clean-rdkit-env; 
-tar -xzf clean-rdkit-env.tar.gz -C C:\envs\clean-rdkit-env; 
-C:\envs\clean-rdkit-env\Scripts\activate; 
-conda-unpack; 
+
+```powershell
+mkdir C:\envs\clean-rdkit-env
+tar -xzf clean-rdkit-env.tar.gz -C C:\envs\clean-rdkit-env
+C:\envs\clean-rdkit-env\Scripts\activate
+conda-unpack
+
 Run: 
-C:\envs\clean-rdkit-env\python.exe -u Pipeline/main_model.py. 
+C:\envs\clean-rdkit-env\python.exe -u Pipeline\main_model.py
+
 
 ### Option 2:
-Create from explicit spec; 
-conda create -n clean-rdkit-env --file env-explicit.txt; 
-conda activate clean-rdkit-env; 
+Create from explicit spec:
+conda create -n clean-rdkit-env --file env-explicit.txt
+conda activate clean-rdkit-env
+
 Note: Plain env.yml may resolve to newer builds and is not guaranteed to reproduce the exact working environment. 
 For stability, use the packed tarball or env-explicit.txt.
 > **Note:** Plain `env.yml` may not exactly reproduce the same builds across machines.  
