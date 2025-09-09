@@ -1,6 +1,5 @@
 # Solubility Prediction Pipeline
 
-<<HEAD
 This repository provides a reproducible **machine learning pipeline for solubility prediction** using multiple descriptor sets (MOE, RDKit, Mordred, Morgan fingerprints) and models (XGBoost, Random Forest, SVM).  
 It supports **10-fold CV** and **Leave-One-Solute-Out (LOSO) CV**, hybrid mode with COSMO-RS features, and interpretability via SHAP analysis and Morgan fingerprint visualisation.
 
@@ -95,7 +94,7 @@ Outputs (predictions, plots, logs) will appear under the `outputs/` and `predict
 
 ## 📜 Citation
 If you use this pipeline in academic work, please cite:
-
+---
 ```
 [TODO: add the paper reference]
 ```
