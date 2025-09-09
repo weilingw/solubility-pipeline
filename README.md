@@ -5,7 +5,6 @@ It supports **10-fold CV** and **Leave-One-Solute-Out (LOSO) CV**, hybrid mode w
 
 
 ## 🚀 Installation
-
 ### Option 1: Use packed environment (recommended)
 Download [`clean-rdkit-env.tar.gz`](https://github.com/weilingw/solubility-pipeline/releases) from the Releases page and unpack:
 
@@ -14,18 +13,18 @@ mkdir C:\envs\clean-rdkit-env
 tar -xzf clean-rdkit-env.tar.gz -C C:\envs\clean-rdkit-env
 C:\envs\clean-rdkit-env\Scripts\activate
 conda-unpack
-
-Run: 
+````
+Run:
+````
 C:\envs\clean-rdkit-env\python.exe -u Pipeline\main_model.py
+````
 
-
-### Option 2:
+### Option 2:  
 Create from explicit spec:
+````
 conda create -n clean-rdkit-env --file env-explicit.txt
 conda activate clean-rdkit-env
-
-Note: Plain env.yml may resolve to newer builds and is not guaranteed to reproduce the exact working environment. 
-For stability, use the packed tarball or env-explicit.txt.
+````
 > **Note:** Plain `env.yml` may not exactly reproduce the same builds across machines.  
 > For stability, prefer the packed tarball or `env-explicit.txt`.
 
@@ -80,6 +79,7 @@ use_random_search = True       # enable RandomizedSearchCV hyperparameter tuning
 use_bit_visualization = False  # only used for Morgan fingerprints
 use_saved_models = True        # reuse pre-trained models if available
 enable_y_scrambling = True     # perform Y-scrambling for significance testing
+````
 
 Outputs (predictions, plots, logs) will appear under the `outputs/` and `predictions/` directories.
 
