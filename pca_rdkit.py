@@ -113,7 +113,7 @@ def _role_panel(
     #xlab = f"PC1 ({evr[0]*100:.1f}%)"
     #ylab = f"PC2 ({evr[1]*100:.1f}%)"
 
-    # shared solubility normalization (pass in or compute once overall)
+    # shared solubility normalisation (pass in or compute once overall)
     if sol_norm is None:
         vmin, vmax = np.nanpercentile(df[solubility_col].values, [1, 99])
         sol_norm = mcolors.Normalize(vmin=float(vmin), vmax=float(vmax))
