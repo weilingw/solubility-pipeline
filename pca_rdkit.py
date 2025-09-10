@@ -84,7 +84,7 @@ def _role_panel(
         "Solubility": "Solubility (log scale)",
         "LogP":    (f"{logp_col} (LogP-like)" if logp_col else "Unavailable"),
         "logMolWt":   (f"{role.capitalize()} Molecular Weight (log₁₀ scale)" if mw_col else "Unavailable"),
-        "TPSA":       (f"{tpsa_col} (Topological Polar Surface Area)" if tpsa_col else "Unavailable"),
+        "TPSA":       (f"{tpsa_col}" if tpsa_col else "Unavailable"),
     }
 
     # symmetric limits & jitter (helps in pair mode)
