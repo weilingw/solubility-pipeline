@@ -94,7 +94,6 @@ Requirements
 If you use this pipeline in academic work, please cite:
 
 [TODO: add the paper reference]
-59daeda (Update README with configuration section and usage instructions)
 
 ## Important note on platform stability
 We observed that XGBoost may crash with an access violation on some Windows 11 machines due to conflicts between OpenMP runtimes, MKL/BLAS libraries, and NVIDIA drivers.
