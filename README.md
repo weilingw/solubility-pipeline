@@ -99,15 +99,15 @@ If you use this pipeline in academic work, please cite:
 ## Important note on platform stability
 We observed that XGBoost may crash with an access violation on some Windows 11 machines due to conflicts between OpenMP runtimes, MKL/BLAS libraries, and NVIDIA drivers.
 
-On our reference environment (above), the pipeline runs reliably. If you encounter segmentation faults or Windows fatal exception: access violation, we recommend:
+On our reference environment, the pipeline runs reliably. If you encounter segmentation faults or Windows fatal exception: access violation, we recommend:
 
-Creating the environment from the provided environment.yml using conda-forge.
+Creating the environment using conda-forge.
 
-Ensuring only one OpenMP runtime is loaded (libomp vs vcomp140.dll vs MKL).
+Ensuring only one OpenMP runtime is loaded.
 
-Running in CPU-only mode (tree_method="hist", device="cpu", n_jobs=1).
+Running in CPU-only mode.
 
-Disabling tqdm monitors if necessary (disable=True).
+Disabling tqdm monitors if necessary.
 
 As an alternative, HistGradientBoostingRegressor from scikit-learn can be substituted for XGBoost for CPU-only runs with similar performance.
 
