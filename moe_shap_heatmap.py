@@ -10,11 +10,14 @@ os.environ["OMP_NUM_THREADS"] = "1"
 from sklearn.model_selection import KFold
 from sklearn.pipeline import Pipeline
 import random
+from sklearn.cluster import KMeans
+from threadpoolctl import threadpool_limits
 
 random.seed(42)
 np.random.seed(42)
 
 shap_cmap = sns.diverging_palette(220, 20, as_cmap=True)
+
 
 
 # === Descriptor Annotation ===
@@ -88,50 +91,95 @@ def get_canonical_solute_order(df, solute_name_col, solubility_col, agg="mean", 
     s = getattr(g, agg)().dropna()
     return s.sort_values(ascending=ascending).index
 
-
 def get_shap_explainer(model, X, n_background=10, X_background=None):
-    # ...
-    # === KernelExplainer logic for SVM and others ===
-    X_clean = X.loc[:, X.notna().any(axis=0)].copy()
+    """
+    Returns a SHAP explainer for the given fitted model and feature frame X.
+    - If the final estimator is tree-based (XGB, RandomForest), uses TreeExplainer
+      with an interventional baseline aligned to train-time columns.
+    - Otherwise, uses KernelExplainer with a train-based KMeans background
+      (deterministic, thread-limited to avoid MKL warning on Windows).
 
-    #  Patch: Align X_clean with training-time columns for pipelines (SVM only)
-    if hasattr(model, "named_steps") and "scaler" in model.named_steps:
-        scaler = model.named_steps["scaler"]
-        if hasattr(scaler, "feature_names_in_"):
-            trained_cols = list(scaler.feature_names_in_)
-            missing_cols = [col for col in trained_cols if col not in X_clean.columns]
-            if missing_cols:
-                print(f" Detected {len(missing_cols)} missing columns — aligning test features with training-time columns")
-            X_clean = X_clean.reindex(columns=trained_cols, fill_value=0).fillna(0)
+    Parameters
+    ----------
+    model : fitted estimator or Pipeline
+    X : pd.DataFrame
+        Points plan to explain (e.g., test fold).
+    n_background : int
+        Number of KMeans clusters (caps background size for KernelExplainer).
+    X_background : pd.DataFrame or None
+        Background source (e.g., training fold). If None, falls back to X.
+    """
+    # --- unwrap CV wrappers and pipelines
+    if hasattr(model, "best_estimator_"):
+        model = model.best_estimator_
+    pipe = model if isinstance(model, Pipeline) else None
+    final_est = pipe.steps[-1][1] if pipe is not None else model
+    model_name = type(final_est).__name__.lower()
 
-        if X_clean.shape[1] == 0:
-            raise ValueError("All descriptor columns are NaN — SHAP cannot proceed.")
+    # --- utility: align a frame's columns to what the model/scaler saw at train time
+    def _align_to_trained_columns(df: pd.DataFrame) -> pd.DataFrame:
+        df = df.loc[:, df.notna().any(axis=0)].copy()
+        # If a scaler exists with feature_names_in_, prefer that (pipelines with SVM etc.)
+        if pipe is not None and "scaler" in getattr(pipe, "named_steps", {}):
+            scaler = pipe.named_steps["scaler"]
+            if hasattr(scaler, "feature_names_in_"):
+                return df.reindex(columns=list(scaler.feature_names_in_), fill_value=0).fillna(0)
+        # Else try estimator feature_names_in_ (supported by many sklearn models)
+        if hasattr(final_est, "feature_names_in_"):
+            return df.reindex(columns=list(final_est.feature_names_in_), fill_value=0).fillna(0)
+        # Fallback: numeric only
+        return df.select_dtypes(include=[np.number]).fillna(0)
 
-        # NEW: choose background source (prefer training if passed in)
-        bg_src = X_background.loc[:, X_clean.columns].copy() if X_background is not None else X_clean
+    # --- pretty route log
+    is_tree = ("xgb" in model_name) or ("randomforest" in model_name) or hasattr(final_est, "get_booster")
+    print(f" SHAP route: final_est={type(final_est).__name__} -> "
+          f"{'TreeExplainer' if is_tree else 'KernelExplainer'}")
+
+    # =========================
+    # Route A: TreeExplainer
+    # =========================
+    if is_tree:
+        # background from TRAIN if provided, else X (both aligned)
+        bg_src = _align_to_trained_columns(X_background if X_background is not None else X)
+        # shrink background for speed
+        if len(bg_src) > 100:
+            bg_src = bg_src.sample(n=100, random_state=0)
         bg_src = bg_src.astype("float32", copy=False)
 
-        n_clusters = max(1, min(n_background, bg_src.shape[0]))
-        print(f" SHAP using KMeans background with {n_clusters} clusters")
+        # Interventional TreeExplainer (good for XGB/RF)
+        return shap.TreeExplainer(
+            final_est,
+            data=bg_src,
+            feature_perturbation="interventional",
+            model_output="raw"  # explains margin for XGB; keep consistent when checking additivity
+        )
 
-        with threadpool_limits(limits=1):  # avoid MKL/OpenMP memory leak warning on Windows
-            km = KMeans(n_clusters=n_clusters, random_state=0, n_init=10, algorithm="lloyd")
-            centers = km.fit(bg_src.values).cluster_centers_
+    # =========================
+    # Route B: KernelExplainer
+    # =========================
+    # Points to explain (X) and background source (prefer TRAIN)
+    X_clean = _align_to_trained_columns(X)
+    if X_clean.shape[1] == 0:
+        raise ValueError("All descriptor columns are NaN — SHAP cannot proceed.")
+    bg_src = _align_to_trained_columns(X_background) if X_background is not None else X_clean
+    bg_src = bg_src.astype("float32", copy=False)
 
-        def model_predict(X_input):
-            if isinstance(X_input, np.ndarray):
-                X_input = pd.DataFrame(X_input, columns=X_clean.columns)
-            if hasattr(model, "named_steps") and "scaler" in model.named_steps and \
-            hasattr(model.named_steps["scaler"], "feature_names_in_"):
-                trained_cols = model.named_steps["scaler"].feature_names_in_
-                X_input = X_input.reindex(columns=trained_cols, fill_value=0)
-            elif hasattr(model, "feature_names_in_"):
-                X_input = X_input.reindex(columns=model.feature_names_in_, fill_value=0)
-            X_input = X_input.fillna(0)
-            return model.predict(X_input)
+    # pick deterministic KMeans background, avoid MKL Windows warning
+    n_clusters = max(1, min(n_background, bg_src.shape[0]))
+    print(f" SHAP using KMeans background with {n_clusters} clusters")
+    with threadpool_limits(limits=1):
+        km = KMeans(n_clusters=n_clusters, random_state=0, n_init=10, algorithm="lloyd")
+        centers = km.fit(bg_src.values).cluster_centers_
 
-        # NEW: use cluster centres as background for KernelExplainer
-        return shap.KernelExplainer(model_predict, centers)
+    # robust predict wrapper (accepts ndarray or DataFrame, aligns columns)
+    def model_predict(X_input):
+        if isinstance(X_input, np.ndarray):
+            X_input = pd.DataFrame(X_input, columns=X_clean.columns)
+        X_input = _align_to_trained_columns(X_input)
+        return model.predict(X_input)
+
+    return shap.KernelExplainer(model_predict, centers)
+
 
 
 # === Step 1: SHAP from 10-fold for global ranking ===
@@ -146,38 +194,41 @@ def compute_global_shap_from_kfold_models(model_list, df, descriptor_cols, kfold
     else:
         split_iter = [np.array(ti, dtype=int) for ti in kfold_test_indices]
 
-    # REPLACE the for-loop header:
     for model, test_idx in tqdm(zip(model_list, split_iter),
                             total=len(model_list), desc="SHAP (10-fold)"):
 
-        test_df = df.iloc[test_idx]
+        # test / train split for this fold
+        test_df  = df.iloc[test_idx]
         train_idx = np.setdiff1d(np.arange(len(df)), test_idx)
         train_df = df.iloc[train_idx]
 
+        # features (align types once)
         X_test  = test_df.loc[:, descriptor_cols].astype(float)
         X_train = train_df.loc[:, descriptor_cols].astype(float)
 
+        # unwrap and build explainer (pass TRAIN as background)
         fitted_model = model.best_estimator_ if hasattr(model, 'best_estimator_') else model
-        explainer = get_shap_explainer(fitted_model, X=X_test, n_background=10, X_background=X_train)
+        explainer = get_shap_explainer(
+            fitted_model,
+            X=X_test,
+            n_background=10,
+            X_background=X_train              # train-based baseline for SVM/Kernel
+        )
 
-
+        # version-safe SHAP value computation
+        Xf = X_test.astype(np.float32, copy=False)
         if isinstance(explainer, shap.KernelExplainer):
-            # ensure enough samples for a full-rank local linear model
-            p = X_test.shape[1]
-            nsamples = max(2 * p + 1, 100)   # meet 2p+1 requirement or use 100
-            nsamples = min(nsamples, 300)    # optional cap to keep runtime bounded
-
-            values = explainer.shap_values(
-                X_test.astype(np.float32, copy=False),
-                nsamples=nsamples,
-                l1_reg="num_features(10)"                 # auto L1 reg; helps conditioning without extra cost
-            )
-        else:
-            values = explainer(X_test).values
-
+            p = Xf.shape[1]
+            nsamples = min(max(2*p + 1, 100), 300)
+            values = explainer.shap_values(Xf, nsamples=nsamples, l1_reg="num_features(10)")
+        elif hasattr(explainer, "shap_values"):          # TreeExplainer on many versions
+            values = explainer.shap_values(Xf)
+        else:                                             # newer unified API
+            values = explainer(Xf).values
 
         shap_df = pd.DataFrame(values, columns=descriptor_cols, index=test_df.index)
         all_shap.append(shap_df)
+
 
     return pd.concat(all_shap, axis=0)
 
@@ -230,6 +281,7 @@ def compute_loso_shap_matrix(model_store, df, descriptor_cols, solute_name_col, 
     print("DEBUG: First few top_descriptors:", top_descriptors[:5])
 
     for model, solute in tqdm(pairs, total=len(pairs), desc="SHAP (LOSO)"):
+
         test_df  = df[df[solute_name_col] == solute]
         train_df = df[df[solute_name_col] != solute]
 
@@ -237,20 +289,22 @@ def compute_loso_shap_matrix(model_store, df, descriptor_cols, solute_name_col, 
         X_train = train_df[descriptor_cols].astype(float)
 
         fitted_model = model.best_estimator_ if hasattr(model, 'best_estimator_') else model
-        explainer = get_shap_explainer(fitted_model, X=X_test, n_background=10, X_background=X_train)
+        explainer = get_shap_explainer(
+            fitted_model,
+            X=X_test,
+            n_background=10,
+            X_background=X_train              # train-based baseline for SVM/Kernel
+        )
 
+        Xf = X_test.astype(np.float32, copy=False)
         if isinstance(explainer, shap.KernelExplainer):
-            p = X_test.shape[1]
-            nsamples = max(2 * p + 1, 100)
-            nsamples = min(nsamples, 300)
-
-            values = explainer.shap_values(
-                X_test.astype(np.float32, copy=False),
-                nsamples=nsamples,
-                l1_reg="num_features(10)"
-            )
+            p = Xf.shape[1]
+            nsamples = min(max(2*p + 1, 100), 300)
+            values = explainer.shap_values(Xf, nsamples=nsamples, l1_reg="num_features(10)")
+        elif hasattr(explainer, "shap_values"):
+            values = explainer.shap_values(Xf)
         else:
-            values = explainer(X_test).values
+            values = explainer(Xf).values
 
 
 
@@ -363,7 +417,6 @@ def plot_shap_heatmap(matrix, descriptor_labels, output_path, title, activation_
         linecolor='gray',
         cbar_kws={"label": "Signed SHAP Value"}
     )
-
     color_code_tick_labels(ax)
     ax.set_title(title, fontsize=14)
     ax.set_xlabel("Top Descriptors (Category)")
