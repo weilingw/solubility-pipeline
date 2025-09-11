@@ -5,9 +5,17 @@ import re
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 import matplotlib.gridspec as gridspec
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+
+from matplotlib.lines import Line2D
+
+# after plotting scatter points
+handles = [Line2D([0], [0], marker='o', color='w', label=f"{cv_type} models",
+                  markerfacecolor=cv_colors[cv_type], markersize=8)
+           for cv_type in df['cv_type'].unique()]
+plt.legend(handles=handles, title="CV Type", loc="best")
+
 
 # === Color Scheme by Model Type ===
 cv_colors = {
