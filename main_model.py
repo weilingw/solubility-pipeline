@@ -1,3 +1,4 @@
+# main.py (updated with automatic model metadata handling and visualization)
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import re
@@ -26,12 +27,12 @@ from sklearn.model_selection import KFold
 
 # === Global Settings ===
 model_type = 'rf'              # 'rf', 'xgb', 'svm'
-descriptor_type = 'moe'         # 'morgan', 'mordred', 'moe', 'rdkit'
+descriptor_type = 'morgan'         # 'morgan', 'mordred', 'moe', 'rdkit'
 use_hybrid_mode = True       # Use COSMO features
 use_random_search = True     # Whether using 
 use_bit_visualization = False      # only for morgan
 use_saved_models = False
-enable_y_scrambling =  True   # set False to skip all scrambling work
+enable_y_scrambling =  False   # set False to skip all scrambling work
 
 # --- Metadata strings ---
 hybrid_str = 'hybrid' if use_hybrid_mode else 'pure'
@@ -619,7 +620,11 @@ if enable_y_scrambling:
     build_scrambling_matrices(scramble_dir)
 
 # === Plotting & Metrics ===
-from plots import run_all_prediction_visualizations, export_model_metrics
+from plots import (
+    run_all_prediction_visualizations,
+    plot_tuned_vs_cv_with_cosmo,
+    export_model_metrics
+)
 
 loso_df = pd.read_csv(os.path.join(base_output_path, "predictions", f"{tag}_loso_predictions.csv"))
 kfold_df = pd.read_csv(os.path.join(base_output_path, "predictions", f"{tag}_kfold_predictions.csv"))
@@ -641,6 +646,13 @@ run_all_prediction_visualizations(
 )
 
 export_model_metrics(combined_df, os.path.join(base_output_path, "model_metrics_summary.csv"))
+regex = rf"{model_type}.*{descriptor_type}.*{hybrid_str}.*{tuned_str}"
+plot_tuned_vs_cv_with_cosmo(
+    combined_df,
+    os.path.join(base_output_path, "predictions", f"{model_type.lower()}_{descriptor_type}_{hybrid_str}_tuned_LOSO_10Fold_vs_COSMO.png"),
+    model_regex=regex,
+    title=f"Tuned {model_type.upper()}–{descriptor_type} ({hybrid_str}): LOSO vs 10-fold vs COSMO-RS"
+)
 
 # === PCA ===
 import importlib, inspect, pca_rdkit
