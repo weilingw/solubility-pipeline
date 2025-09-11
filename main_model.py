@@ -1,6 +1,7 @@
-# main.py (updated with automatic model metadata handling and visualization)
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+for k in ("OMP_NUM_THREADS","OPENBLAS_NUM_THREADS","MKL_NUM_THREADS","NUMEXPR_NUM_THREADS"):
+    os.environ[k] = "1"
 import re
 import json
 import numpy as np
@@ -10,7 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import unicodedata as ud
 from tqdm import tqdm
-os.environ["OMP_NUM_THREADS"] = "8"
+os.environ["OMP_NUM_THREADS"] = "8" ##optional
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from sklearn.pipeline import Pipeline
@@ -39,9 +40,10 @@ hybrid_str = 'hybrid' if use_hybrid_mode else 'pure'
 tuned_str = 'tuned' if use_random_search else 'untuned'
 tag = f"{model_type}_{descriptor_type}_{hybrid_str}_{tuned_str}"
 
-input_file = "C:/Project/Nottingham/Tony/solubility/Systematic_study/final_filtered_descriptors.txt"
-#input_file = "C:/Project/Solubility_Paper/data_com/cosmotherm.txt"
-base_output_path = "C:/Project/Nottingham/Tony/solubility/Systematic_study/checked/main"
+base_dir = os.path.dirname(__file__)
+input_file = os.path.join(base_dir, "example_data", "final_filtered_descriptors.txt")
+base_output_path = os.path.join(base_dir, "outputs")
+os.makedirs(base_output_path, exist_ok=True)
 
 # === Load Data ===
 df = pd.read_csv(input_file, sep="\t", encoding="utf-8")
