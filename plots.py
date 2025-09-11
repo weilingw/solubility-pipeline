@@ -186,7 +186,7 @@ def plot_tuned_vs_cv_with_cosmo(df, output_path, model_regex=None, title=None):
         chosen_model = tuned_df['model'].value_counts().index[0]
     else:
         candidates = tuned_df['model'].unique()
-        matches = [m for m in candidates if _re.search(model_regex, m, flags=_re.IGNORECASE)]
+        matches = [m for m in candidates if re.search(model_regex, m, flags=re.IGNORECASE)]
         if not matches:
             raise ValueError(f"No tuned model matches regex: {model_regex!r}. "
                              f"Available tuned models: {list(candidates)}")
