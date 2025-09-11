@@ -88,6 +88,7 @@ def get_canonical_solute_order(df, solute_name_col, solubility_col, agg="mean", 
     s = getattr(g, agg)().dropna()
     return s.sort_values(ascending=ascending).index
 
+
 def get_shap_explainer(model, X, n_background=10, X_background=None):
     # ...
     # === KernelExplainer logic for SVM and others ===
@@ -103,35 +104,34 @@ def get_shap_explainer(model, X, n_background=10, X_background=None):
                 print(f" Detected {len(missing_cols)} missing columns — aligning test features with training-time columns")
             X_clean = X_clean.reindex(columns=trained_cols, fill_value=0).fillna(0)
 
-    if X_clean.shape[1] == 0:
-        raise ValueError("All descriptor columns are NaN — SHAP cannot proceed.")
+        if X_clean.shape[1] == 0:
+            raise ValueError("All descriptor columns are NaN — SHAP cannot proceed.")
 
-    # NEW: pick background from TRAIN if provided
-    if X_background is not None:
-        bg_src = X_background.loc[:, X_clean.columns].copy()
-    else:
-        bg_src = X_clean
+        # NEW: choose background source (prefer training if passed in)
+        bg_src = X_background.loc[:, X_clean.columns].copy() if X_background is not None else X_clean
+        bg_src = bg_src.astype("float32", copy=False)
 
-    n_clusters = max(1, min(n_background, bg_src.shape[0]))
-    background = shap.kmeans(bg_src.astype(np.float32, copy=False), n_clusters)
-    print(f"SHAP using KMeans background with {n_clusters} clusters")
+        n_clusters = max(1, min(n_background, bg_src.shape[0]))
+        print(f" SHAP using KMeans background with {n_clusters} clusters")
 
-    def model_predict(X_input):
-        # be robust to ndarray or DataFrame
-        if isinstance(X_input, np.ndarray):
-            X_input = pd.DataFrame(X_input, columns=X_clean.columns)
+        with threadpool_limits(limits=1):  # avoid MKL/OpenMP memory leak warning on Windows
+            km = KMeans(n_clusters=n_clusters, random_state=0, n_init=10, algorithm="lloyd")
+            centers = km.fit(bg_src.values).cluster_centers_
 
-        if hasattr(model, "named_steps") and "scaler" in model.named_steps and \
-           hasattr(model.named_steps["scaler"], "feature_names_in_"):
-            trained_cols = model.named_steps["scaler"].feature_names_in_
-            X_input = X_input.reindex(columns=trained_cols, fill_value=0)
-        elif hasattr(model, "feature_names_in_"):
-            X_input = X_input.reindex(columns=model.feature_names_in_, fill_value=0)
+        def model_predict(X_input):
+            if isinstance(X_input, np.ndarray):
+                X_input = pd.DataFrame(X_input, columns=X_clean.columns)
+            if hasattr(model, "named_steps") and "scaler" in model.named_steps and \
+            hasattr(model.named_steps["scaler"], "feature_names_in_"):
+                trained_cols = model.named_steps["scaler"].feature_names_in_
+                X_input = X_input.reindex(columns=trained_cols, fill_value=0)
+            elif hasattr(model, "feature_names_in_"):
+                X_input = X_input.reindex(columns=model.feature_names_in_, fill_value=0)
+            X_input = X_input.fillna(0)
+            return model.predict(X_input)
 
-        X_input = X_input.fillna(0)
-        return model.predict(X_input)
-
-    return shap.KernelExplainer(model_predict, background)
+        # NEW: use cluster centres as background for KernelExplainer
+        return shap.KernelExplainer(model_predict, centers)
 
 
 # === Step 1: SHAP from 10-fold for global ranking ===
