@@ -230,9 +230,9 @@ def plot_tuned_vs_cv_with_cosmo(df, output_path, model_regex=None, title=None):
 
     def _cum_err(ax, label_color_pairs):
         for label, color, group in label_color_pairs:
-            err = _np.abs(group['solubility_g_100g_log'] - group['prediction'])
-            srt = _np.sort(err)
-            cum = _np.arange(1, len(srt)+1) / len(srt) * 100
+            err = np.abs(group['solubility_g_100g_log'] - group['prediction'])
+            srt = np.sort(err)
+            cum = np.arange(1, len(srt)+1) / len(srt) * 100
             ax.plot(srt, cum, label=label, color=color)
         ax.set_xlim(0, 4); ax.set_ylim(0, 100)
         ax.set_xlabel("Error, log(g/100g)")
