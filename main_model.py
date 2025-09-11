@@ -26,7 +26,7 @@ from sklearn.model_selection import KFold
 
 
 # === Global Settings ===
-model_type = 'rf'              # 'rf', 'xgb', 'svm'
+model_type = 'svm'              # 'rf', 'xgb', 'svm'
 descriptor_type = 'morgan'         # 'morgan', 'mordred', 'moe', 'rdkit'
 use_hybrid_mode = True       # Use COSMO features
 use_random_search = True     # Whether using 
@@ -321,7 +321,12 @@ elif model_type == 'xgb':
     }
 
 elif model_type == 'svm':
+    from sklearn.preprocessing import FunctionTransformer
+    def _to_array(X):
+        # Convert DataFrame -> numpy; leave numpy as-is
+        return X.values if isinstance(X, pd.DataFrame) else X
     base_model = Pipeline([
+        ('to_array', FunctionTransformer(_to_array, validate=False)),
         ('scaler', StandardScaler()),
         ('svr', SVR())
     ])
@@ -649,7 +654,7 @@ export_model_metrics(combined_df, os.path.join(base_output_path, "model_metrics_
 regex = rf"{model_type}.*{descriptor_type}.*{hybrid_str}.*{tuned_str}"
 plot_tuned_vs_cv_with_cosmo(
     combined_df,
-    os.path.join(base_output_path, "predictions", f"{model_type.lower()}_{descriptor_type}_{hybrid_str}_tuned_LOSO_10Fold_vs_COSMO.png"),
+    os.path.join(base_output_path, "plot_output", f"{model_type.lower()}_{descriptor_type}_{hybrid_str}_tuned_LOSO_10Fold_vs_COSMO.png"),
     model_regex=regex,
     title=f"Tuned {model_type.upper()}–{descriptor_type} ({hybrid_str}): LOSO vs 10-fold vs COSMO-RS"
 )
