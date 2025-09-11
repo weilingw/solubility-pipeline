@@ -10,7 +10,6 @@ os.environ["OMP_NUM_THREADS"] = "1"
 from sklearn.model_selection import KFold
 from sklearn.pipeline import Pipeline
 import random
-import numpy as np
 
 random.seed(42)
 np.random.seed(42)
