@@ -110,4 +110,4 @@ Disabling tqdm monitors if necessary.
 
 As an alternative, HistGradientBoostingRegressor from scikit-learn can be substituted for XGBoost for CPU-only runs with similar performance.
 
-All results reported here were generated on Windows 11. A Linux version of the workflow is currently being prepared and will be added to this repository to further ensure cross-platform reproducibility.
+All results reported here were generated on Windows 11.
