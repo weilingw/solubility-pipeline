@@ -365,13 +365,6 @@ def plot_shap_heatmap(matrix, descriptor_labels, output_path, title, activation_
         cbar_kws={"label": "Signed SHAP Value"}
     )
 
-    # if activation_matrix is not None:
-    #     for i in range(matrix.shape[0]):
-    #         for j in range(matrix.shape[1]):
-    #             if activation_matrix.iloc[i, j] == 0:
-    #                 ax.plot(j + 0.75, i + 0.25, marker='o', markersize=2.5,
-    #                         markerfacecolor='none', markeredgecolor='black', linewidth=0.3)
-
     color_code_tick_labels(ax)
     ax.set_title(title, fontsize=14)
     ax.set_xlabel("Top Descriptors (Category)")
