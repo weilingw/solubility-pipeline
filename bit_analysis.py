@@ -1,4 +1,3 @@
-# bit_analysis.py
 import os
 import pandas as pd
 from rdkit import Chem
@@ -98,7 +97,7 @@ def summarize_bit_frequency(df, top_bits, output_dir, role=None):
                 })
 
     if not rows:
-        print(f"⚠️ No rows to summarize in summarize_bit_frequency (role={role}).")
+        print(f"No rows to summarize in summarize_bit_frequency (role={role}).")
         return
 
     out_name = f"{role or 'all'}_bit_usage_summary.csv"
@@ -158,19 +157,19 @@ def visualize_top_bits_with_bitinfo(
     For each top bit, generate a substructure summary across all solutes/solvents that activate it.
     bitinfo_data is now indexed by row number, not SMILES.
     """
-    print(f"\n🧬 Visualizing top bits for {role} using index-based bitInfo...")
+    print(f"\nVisualizing top bits for {role} using index-based bitInfo...")
 
-    print("🔍 Sample rows in DataFrame:", df[[smiles_col]].head())
-    print("🔍 Sample keys in bitinfo_data (row indices):", list(bitinfo_data.keys())[:5])
+    print(" Sample rows in DataFrame:", df[[smiles_col]].head())
+    print(" Sample keys in bitinfo_data (row indices):", list(bitinfo_data.keys())[:5])
 
     for role_, local_bit in top_bits:
         col = f"{role_}_FP_{local_bit}"
         if col not in df.columns:
-            print(f"⚠️ Bit column {col} missing from DataFrame — skipping.")
+            print(f" Bit column {col} missing from DataFrame — skipping.")
             continue
 
         activated = df[col].sum()
-        print(f"🔍 Bit {local_bit} ({role_}) activated in {int(activated)} molecule(s).")
+        print(f" Bit {local_bit} ({role_}) activated in {int(activated)} molecule(s).")
 
         matched_rows = []
         bitinfos_for_matches = {}
@@ -253,7 +252,7 @@ def visualize_top_bits_with_bitinfo(
             bitinfos_for_matches[idx] = mol_bitinfo[local_bit]
 
         if matched_rows:
-            print(f" Bit {local_bit} matched in {len(matched_rows)} molecules — visualizing.")
+            print(f"Bit {local_bit} matched in {len(matched_rows)} molecules — visualizing.")
             create_bit_summary_visualization(
                 bit_index=local_bit,
                 matched_solutes=matched_rows,
@@ -263,7 +262,7 @@ def visualize_top_bits_with_bitinfo(
                 sub_img_size=sub_img_size
             )
         else:
-            print(f"⚠️ Bit {local_bit} was not active in any molecule — skipping.")
+            print(f"Bit {local_bit} was not active in any molecule — skipping.")
 
 
 
