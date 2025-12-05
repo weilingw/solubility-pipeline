@@ -23,7 +23,7 @@ def generate_rdkit_shap_heatmap(
     kfold_test_indices=None,
 ):
     os.makedirs(output_dir, exist_ok=True)
-    print(" Generating SHAP heatmap for RDKit descriptors...")
+    print("Generating SHAP heatmap for RDKit descriptors...")
 
     order = get_canonical_solute_order(
         full_df,
@@ -93,15 +93,28 @@ def generate_rdkit_shap_heatmap(
         descriptor_cols=descriptor_cols,
         solute_name_col=solute_name_col,
         solubility_col=solubility_col,
-        top_descriptors=top20,
-        order=order
+        top_descriptors=top20
     )
-    heatmap_matrix_loso_global20.to_csv(os.path.join(output_dir, f"{model_type}_rdkit_shap_matrix_global20_loso.csv"))
+
+    # enforce same canonical order as kfold
+    heatmap_matrix_loso_global20 = heatmap_matrix_loso_global20.reindex(
+        order.intersection(heatmap_matrix_loso_global20.index)
+    )
+
+    # optional: same thresholding style
+    heatmap_matrix_loso_global20 = heatmap_matrix_loso_global20.where(
+        heatmap_matrix_loso_global20.abs() >= 1e-10, 0
+    )
+
+    heatmap_matrix_loso_global20.to_csv(
+        os.path.join(output_dir, f"{model_type}_rdkit_shap_matrix_global20_loso.csv")
+    )
+
 
     # === Overlay (LOSO) ===
     activation_loso_global20 = (
         full_df.groupby(solute_name_col)[top20]
-        .first()   # use .max(numeric_only=True) or .any() if prefer "any occurrence"
+        .first()   
         .reindex(heatmap_matrix_loso_global20.index)
         .notna()
         .astype(int)
@@ -115,4 +128,4 @@ def generate_rdkit_shap_heatmap(
         activation_matrix=activation_loso_global20
     )
 
-    print(" RDKit SHAP heatmaps and matrix saved.")
+    print("RDKit SHAP heatmaps and matrix saved.")
