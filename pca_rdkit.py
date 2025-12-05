@@ -1,3 +1,5 @@
+# ------------------- pca_rdkit.py (both settings in one code) -------------------
+
 import os
 import numpy as np
 import pandas as pd
@@ -6,15 +8,28 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from matplotlib.ticker import MultipleLocator
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (required by mpl for 3D)
+from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import colors as mcolors
 
 
-def _role_descriptor_mapping(df, role, descriptor_type):
-    """Return (logp_col, mw_col, tpsa_col) for a given role and descriptor family."""
+
+# --- helper: make one panel for a role ("solute"/"solvent") in chosen row-mode ---
+def _role_panel(
+    df, role, descriptor_type, solubility_col, output_dir, model_type,
+    descriptor_cols_role,                # list of columns for this role (either solute_* or solvent_*)
+    rows_mode="pair",                    # "pair" (all rows) or "entity" (unique {role})
+    base_font=12, marker_size=14, sol_norm=None
+):
+    """
+    rows_mode="pair":  use ALL rows (pairs); many will share identical coords -> jitter helps
+    rows_mode="entity": aggregate to one row per unique {role}_smiles with median solubility; size=freq
+    """
+
+    os.makedirs(output_dir, exist_ok=True)
+
     pref = f"{role}_"
     dt = (descriptor_type or "").lower()
-
+    # role-aware optional properties for side panels
     if dt == "rdkit":
         logp_col = pref + "MolLogP"  if pref + "MolLogP"  in df.columns else None
         mw_col   = pref + "MolWt"    if pref + "MolWt"    in df.columns else None
@@ -23,119 +38,131 @@ def _role_descriptor_mapping(df, role, descriptor_type):
         logp_col = pref + "SLogP"    if pref + "SLogP"    in df.columns else None
         mw_col   = pref + "MW"       if pref + "MW"       in df.columns else None
         tpsa_col = pref + "TopoPSA"  if pref + "TopoPSA"  in df.columns else None
-    else:  # MOE-like fallback
-        # common aliases
-        candidates_logp = [pref + "LogP(o/w)", pref + "SlogP", pref + "logP", pref + "LogP"]
-        logp_col = next((c for c in candidates_logp if c in df.columns), None)
+    else:  # MOE-like
+        logp_col = pref + "LogP(o/w)"    if pref + "LogP(o/w)"    in df.columns else None
         mw_col   = next((c for c in df.columns if c.startswith(pref) and "weight" in c.lower()), None)
         tpsa_col = next((c for c in df.columns if c.startswith(pref) and "tpsa"   in c.lower()), None)
 
-    return logp_col, mw_col, tpsa_col
+    # choose plotting dataframe
+    key_col = f"{role}_smiles" if f"{role}_smiles" in df.columns else None
+    if rows_mode == "entity" and key_col:
+        stats = df.groupby(key_col)[solubility_col].agg(
+            n="size", med="median",
+            q1=lambda x: np.nanpercentile(x, 25),
+            q3=lambda x: np.nanpercentile(x, 75)
+        )
+        df_plot = df.drop_duplicates(subset=[key_col]).copy()
+        df_plot = df_plot.merge(stats, left_on=key_col, right_index=True, how="left")
+        df_plot["__freq__"] = df_plot["n"].astype(int)
+        color_sol = df_plot["med"].values  # median solubility
+    else:
+        df_plot = df.copy()
+        if key_col:
+            df_plot["__freq__"] = df_plot[key_col].map(df[key_col].value_counts()).astype(int)
+        else:
+            df_plot["__freq__"] = 1
+        color_sol = df_plot[solubility_col].values
 
-
-def _role_panel_2x2(
-    df, role, descriptor_type, solubility_col, output_dir, model_type,
-    descriptor_cols_role, base_font=12, marker_size=14, sol_norm=None, show_variance=False
-):
-    """
-    Minimal, consistent 2×2 PCA panel for a single role (solute/solvent).
-    Shows: Solubility, LogP-like, log10(MW), TPSA. No pair 2D plot included.
-    """
-    os.makedirs(output_dir, exist_ok=True)
-
-    # --- PCA on role-specific descriptors ---
-    X = df[descriptor_cols_role].astype(float)
+    # PCA on the role-specific descriptors
+    X = df_plot[descriptor_cols_role].astype(float)
     X_std = StandardScaler().fit_transform(X)
-    X_std = pd.DataFrame(X_std, index=df.index, columns=descriptor_cols_role).fillna(0)
+    X_std = pd.DataFrame(X_std, index=df_plot.index, columns=descriptor_cols_role).fillna(0)
 
     pca = PCA(n_components=2)
     pcs = pca.fit_transform(X_std)
     evr = pca.explained_variance_ratio_
 
-    pc_df = pd.DataFrame(pcs, columns=["PC1", "PC2"], index=df.index)
-
-    # axis labels (switch show_variance to True if want the percentages)
-    xlab = f"PC1 ({evr[0]*100:.1f}%)" if show_variance else "PC1"
-    ylab = f"PC2 ({evr[1]*100:.1f}%)" if show_variance else "PC2"
-
-    # role-aware scalar properties
-    logp_col, mw_col, tpsa_col = _role_descriptor_mapping(df, role, descriptor_type)
-
+    pc_df = pd.DataFrame(pcs, columns=["PC1","PC2"], index=df_plot.index)
+    # auxiliary values for colouring
     vals = {
-        "Solubility": df[solubility_col].values,
-        "LogP":       (df[logp_col].values if logp_col else np.full(len(df), np.nan)),
-        "logMolWt":   (np.log10(df[mw_col].replace(0, np.nan)) if mw_col is not None else np.full(len(df), np.nan)),
-        "TPSA":       (df[tpsa_col].values if tpsa_col else np.full(len(df), np.nan)),
+        "Solubility": color_sol,
+        "LogP":    (df_plot[logp_col].values if logp_col else np.full(len(df_plot), np.nan)),
+        "logMolWt":   (np.log10(df_plot[mw_col].replace(0, np.nan)) if mw_col else np.full(len(df_plot), np.nan)),
+        "TPSA":       (df_plot[tpsa_col].values if tpsa_col else np.full(len(df_plot), np.nan)),
     }
     cbar_labels = {
         "Solubility": "Solubility (log scale)",
-        "LogP":       (f"{logp_col} (LogP-like)" if logp_col else "Unavailable"),
+        "LogP":    (f"{logp_col} (LogP-like)" if logp_col else "Unavailable"),
         "logMolWt":   (f"{role.capitalize()} Molecular Weight (log₁₀ scale)" if mw_col else "Unavailable"),
-        "TPSA":       (f"{tpsa_col}" if tpsa_col else "Unavailable"),
+        "TPSA":       (f"{tpsa_col} (Topological Polar Surface Area)" if tpsa_col else "Unavailable"),
     }
 
-    # symmetric limits for centered crosshair
+    # symmetric limits & jitter (helps in pair mode)
     lim = float(np.nanmax([np.abs(pc_df["PC1"]).max(), np.abs(pc_df["PC2"]).max()]) or 1.0)
     margin = lim * 0.06
     xlo, xhi = -lim - margin, lim + margin
     ylo, yhi = -lim - margin, lim + margin
 
-    # shared solubility normalisation if not provided
-    if sol_norm is None:
-        vmin, vmax = np.nanpercentile(df[solubility_col].values, [1, 99])
-        sol_norm = mcolors.Normalize(vmin=float(vmin), vmax=float(vmax))
+    rng = np.random.RandomState(0)
+    span = (xhi - xlo)
+    j = span * (0.004 if rows_mode == "pair" else 0.0)
+    PC1j = pc_df["PC1"].values + (rng.normal(0, j, len(pc_df)) if j > 0 else 0)
+    PC2j = pc_df["PC2"].values + (rng.normal(0, j, len(pc_df)) if j > 0 else 0)
 
-    # --- figure ---
-    fig, ax_mat = plt.subplots(2, 2, figsize=(13.46, 11), dpi=600)  # RSC double column friendly
+    # build figure (2×2 panels)
+    fig, ax_mat = plt.subplots(2, 2, figsize=(2.08, 1.57), dpi=600)
     axes = [ax_mat[0,0], ax_mat[0,1], ax_mat[1,0], ax_mat[1,1]]
 
     props = [
         ("Solubility", "viridis"),
-        ("LogP",       "coolwarm"),
+        ("LogP",    "coolwarm"),
         ("logMolWt",   "plasma"),
         ("TPSA",       "cividis"),
     ]
+    xlab = "PC1"; ylab = "PC2"
+    #xlab = f"PC1 ({evr[0]*100:.1f}%)"
+    #ylab = f"PC2 ({evr[1]*100:.1f}%)"
 
-    for (name, cmap), ax in zip(props, axes):
+    # shared solubility normalization (pass in or compute once overall)
+    if sol_norm is None:
+        vmin, vmax = np.nanpercentile(df[solubility_col].values, [1, 99])
+        sol_norm = mcolors.Normalize(vmin=float(vmin), vmax=float(vmax))
+
+    # size scaling by frequency (more visible in entity mode; also ok in pair mode)
+    f = np.sqrt(np.asarray(df_plot["__freq__"], dtype=float))
+    size_scale = np.clip(1 + 0.25*(f - 1), 1, 2.2)
+    s_val = marker_size * 0.5 * size_scale
+
+    for k, ((name, cmap), ax) in enumerate(zip(props, axes)):
         arr = vals[name]
         norm = (sol_norm if name == "Solubility" else None)
 
-        sc = ax.scatter(
-            pc_df["PC1"], pc_df["PC2"],
-            c=arr, cmap=cmap, norm=norm,
-            s=marker_size, edgecolors="none", alpha=0.85
-        )
+        sc = ax.scatter(PC1j, PC2j, c=arr, cmap=cmap, norm=norm,
+                        s=s_val, alpha=0.55 if rows_mode=="pair" else 0.8,
+                        edgecolors="none")
 
         ax.set_xlim(xlo, xhi); ax.set_ylim(ylo, yhi)
         ax.axhline(0, color="black", linestyle="--", linewidth=0.6)
         ax.axvline(0, color="black", linestyle="--", linewidth=0.6)
+        ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
 
-        # ticks every ~10 units
+        # ticks: every 10; hide top-row x and right-col y labels
         ax.xaxis.set_major_locator(MultipleLocator(10))
         ax.yaxis.set_major_locator(MultipleLocator(10))
+        if k < 2:      ax.tick_params(labelbottom=False)
+        if k % 2 == 1: ax.tick_params(labelleft=False)
 
-        # titles & labels
+        # simple, centered titles (no model name)
         title_map = {"logMolWt": "log10(MW)"}
-        ax.set_title(title_map.get(name, name), fontsize=base_font+1, pad=8)
-        ax.set_xlabel(xlab, fontsize=base_font)
-        ax.set_ylabel(ylab, fontsize=base_font)
-        ax.tick_params(axis="both", labelsize=base_font-2)
+        ax.set_title(title_map.get(name, name), fontsize=base_font+1, loc="center")
+        ax.set_xlabel(""); ax.set_ylabel("")
 
-        # colorbar to the right of each panel
+        # full-height colorbar on the right
         divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="4.8%", pad=0.18)
+        cax = divider.append_axes("right", size="6%", pad=0.16)  # a bit wider + more gap
         cbar = fig.colorbar(sc, cax=cax)
         cbar.ax.yaxis.set_ticks_position("right")
         cbar.ax.yaxis.set_label_position("right")
-        cbar.set_label(cbar_labels[name], rotation=270, labelpad=14, fontsize=base_font-1)
-        cbar.ax.tick_params(labelsize=base_font-3, length=3)
+        cbar.set_label(cbar_labels[name], rotation=270, labelpad=18, fontsize=base_font)
+        cbar.ax.tick_params(labelsize=base_font-2, length=3)
 
-        # cleaner frame
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
+    # global labels (no model name in the title)
+    fig.supxlabel(xlab, fontsize=base_font+1, y=0.04)
+    fig.supylabel(ylab, fontsize=base_font+1, x=0.04)
+    fig.subplots_adjust(right=0.92)
 
-    fig.subplots_adjust(wspace=0.24, hspace=0.28)
-    out_base = f"{model_type.lower()}_{descriptor_type}_{role}_pca_panel"
+    # file base: includes rows_mode and role; figure itself has no model name
+    out_base = f"{model_type.lower()}_{descriptor_type}_{rows_mode}_{role}_pca_panel"
     fig.savefig(os.path.join(output_dir, f"{out_base}.tiff"), dpi=600, bbox_inches="tight")
     fig.savefig(os.path.join(output_dir, f"{out_base}.png"),  dpi=600, bbox_inches="tight")
     plt.close(fig)
@@ -146,14 +173,14 @@ def _pair_panel_combined_two_views_3d(
     base_font=12, marker_size=10, sol_norm=None, show_variance=True
 ):
     """
-    Pair-level PCA (combined solute_* + solvent_* descriptors) -> TWO 3D figures:
-      - solute-view (colorbars sourced from solute_* columns where available)
-      - solvent-view (colorbars sourced from solvent_* columns where available)
-    This replaces the OLD 2D pair plot entirely.
+    Pair-level PCA on combined solute_* + solvent_* descriptors.
+    Produces TWO 3D figures (same PCs): solute-view & solvent-view.
+    No jitter, no frequency sizing.
     """
+    
     os.makedirs(output_dir, exist_ok=True)
 
-    # --- PCA (first 3 PCs) ---
+    # --- PCA (take first 3 PCs) ---
     X = df[pair_descriptor_cols].astype(float)
     X_std = StandardScaler().fit_transform(X)
     X_std = pd.DataFrame(X_std, index=df.index, columns=pair_descriptor_cols).fillna(0)
@@ -162,22 +189,26 @@ def _pair_panel_combined_two_views_3d(
     pcs = pca.fit_transform(X_std)
     evr = pca.explained_variance_ratio_
 
-    # light, distance-aware jitter (optional)
-    if pcs.shape[0] > 10:
+    enable_jitter = True
+    if enable_jitter and pcs.shape[0] > 10:
         try:
             from sklearn.neighbors import NearestNeighbors
             nbrs = NearestNeighbors(n_neighbors=min(8, len(pcs))).fit(pcs)
             dists, _ = nbrs.kneighbors(pcs)
-            local = np.median(dists[:, 3:], axis=1)
+            local = np.median(dists[:, 3:], axis=1)  # ignore the first few tiny distances
             local = np.clip(local, np.quantile(local, 0.05), np.quantile(local, 0.95))
             rng = np.random.RandomState(0)
-            pcs = pcs + rng.normal(size=pcs.shape) * (0.08 * local[:, None])
+            pcs = pcs + rng.normal(size=pcs.shape) * (0.08 * local[:, None])  # ~8% of local scale
         except Exception:
             pass
-
+    # names & labels
     pc_names = [f"PC{i+1}" for i in range(pcs.shape[1])]
-    axis_labels = [f"{n} ({evr[i]*100:.1f}%)" for i, n in enumerate(pc_names)] if show_variance else pc_names
+    if show_variance:
+        axis_labels = [f"{n} ({evr[i]*100:.1f}%)" for i, n in enumerate(pc_names)]
+    else:
+        axis_labels = pc_names
 
+    # symmetric limits across all three axes so (0,0,0) is centered
     lim = float(np.nanmax(np.abs(pcs))) if pcs.size else 1.0
     margin = lim * 0.06
     lo, hi = -lim - margin, lim + margin
@@ -187,23 +218,39 @@ def _pair_panel_combined_two_views_3d(
         vmin, vmax = np.nanpercentile(df[solubility_col].values, [1, 99])
         sol_norm = mcolors.Normalize(vmin=float(vmin), vmax=float(vmax))
 
+    # role-specific color variables
     def _role_vals_and_labels(role):
-        logp, mw, tpsa = _role_descriptor_mapping(df, role, descriptor_type)
+        pref = f"{role}_"
+        dt = (descriptor_type or "").lower()
+        if dt == "rdkit":
+            logp = pref + "MolLogP"  if pref + "MolLogP"  in df.columns else None
+            mw   = pref + "MolWt"    if pref + "MolWt"    in df.columns else None
+            tpsa = pref + "TPSA"     if pref + "TPSA"     in df.columns else None
+        elif dt == "mordred":
+            logp = pref + "SLogP"    if pref + "SLogP"    in df.columns else None
+            mw   = pref + "MW"       if pref + "MW"       in df.columns else None
+            tpsa = pref + "TopoPSA"  if pref + "TopoPSA"  in df.columns else None
+        else:
+            logp = pref + "SlogP"    if pref + "SlogP"    in df.columns else None
+            mw   = next((c for c in df.columns if c.startswith(pref) and "weight" in c.lower()), None)
+            tpsa = next((c for c in df.columns if c.startswith(pref) and "tpsa"   in c.lower()), None)
+
         vals = {
             "Solubility": df[solubility_col].values,
-            "LogP":       (df[logp].values if logp else np.full(len(df), np.nan)),
+            "LogP":    (df[logp].values if logp else np.full(len(df), np.nan)),
             "logMolWt":   (np.log10(df[mw].replace(0, np.nan)) if mw else np.full(len(df), np.nan)),
             "TPSA":       (df[tpsa].values if tpsa else np.full(len(df), np.nan)),
         }
         cbar_labels = {
             "Solubility": "Solubility (log scale)",
-            "LogP":       (f"{logp} (LogP-like)" if logp else "Unavailable"),
+            "LogP":    (f"{logp} (LogP-like)" if logp else "Unavailable"),
             "logMolWt":   (f"{role.capitalize()} Molecular Weight (log₁₀ scale)" if mw else "Unavailable"),
-            "TPSA":       (f"{tpsa}" if tpsa else "Unavailable"),
+            "TPSA":       (f"{tpsa} (Topological Polar Surface Area)" if tpsa else "Unavailable"),
         }
         return vals, cbar_labels
 
     def _plot_view(role_tag, vals, cbar_labels, out_tag):
+        # 2×2 grid of 3D subplots
         fig = plt.figure(figsize=(11.0, 9.0), dpi=600)
         axes = [
             fig.add_subplot(2, 2, 1, projection='3d'),
@@ -213,46 +260,61 @@ def _pair_panel_combined_two_views_3d(
         ]
         props = [
             ("Solubility", "viridis"),
-            ("LogP",       "coolwarm"),
+            ("LogP",    "coolwarm"),
             ("logMolWt",   "plasma"),
             ("TPSA",       "cividis"),
         ]
 
-        order = np.argsort(pcs[:, 2])  # back→front
-        Xp, Yp, Zp = pcs[order, 0], pcs[order, 1], pcs[order, 2]
-
-        for (name, cmap), ax in zip(props, axes):
-            arr = vals[name][order]
+        for k, ((name, cmap), ax) in enumerate(zip(props, axes)):
+            arr = vals[name]
             norm = (sol_norm if name == "Solubility" else None)
 
+            # draw back→front by sorting on Z
+            order = np.argsort(pcs[:, 2])
+            Xp, Yp, Zp = pcs[order, 0], pcs[order, 1], pcs[order, 2]
+            arr_sorted = arr[order]
+
             sc = ax.scatter(
-                Xp, Yp, Zp, c=arr, cmap=cmap, norm=norm,
-                s=marker_size*0.55, alpha=0.55, edgecolors="none", depthshade=False
+                Xp, Yp, Zp,
+                c=arr_sorted, cmap=cmap, norm=norm,
+                s=marker_size*0.55,   # smaller dots
+                alpha=0.55,           # a bit transparent
+                edgecolors="none",
+                depthshade=False
             )
 
+            # limits + origin cross
             ax.set_xlim(lo, hi); ax.set_ylim(lo, hi); ax.set_zlim(lo, hi)
             ax.plot([lo, hi],[0,0],[0,0],'k--',lw=0.6)
             ax.plot([0,0],[lo,hi],[0,0],'k--',lw=0.6)
             ax.plot([0,0],[0,0],[lo,hi],'k--',lw=0.6)
 
+            # labels (optionally without variance)
             ax.set_xlabel(axis_labels[0], labelpad=6, fontsize=base_font)
             ax.set_ylabel(axis_labels[1], labelpad=6, fontsize=base_font)
             ax.set_zlabel(axis_labels[2], labelpad=6, fontsize=base_font)
-            ax.zaxis.set_rotate_label(False)
-            ax.zaxis.set_label_coords(-0.12, 0.5)
-            ax.zaxis.set_tick_params(pad=2)
-            for lbl in ax.zaxis.get_ticklabels():
-                lbl.set_horizontalalignment("left")
 
+            # --- put Z label on the left side to avoid cbar overlap ---
+            ax.zaxis.set_rotate_label(False)           # don’t auto-rotate
+            ax.zaxis.set_label_coords(-0.12, 0.5)      # <- move label to left (axes fraction)
+            ax.zaxis.set_tick_params(pad=2)            # keep tick labels close to axis
+            for lbl in ax.zaxis.get_ticklabels():
+                lbl.set_horizontalalignment("left")    # visually left-aligned
+
+
+            # ticks every 10
             ax.xaxis.set_major_locator(MultipleLocator(15))
             ax.yaxis.set_major_locator(MultipleLocator(15))
             ax.zaxis.set_major_locator(MultipleLocator(15))
 
-            ax.set_title("log10(MW)" if name == "logMolWt" else name, fontsize=base_font+1, pad=6)
+            # title
+            ax.set_title("log10(MW)" if name=="logMolWt" else name,
+                         fontsize=base_font+1, loc="center")
 
+            # colorbar (simple placement works better with 3D)
             cbar = fig.colorbar(sc, ax=ax, pad=0.18, shrink=0.78)
-            cbar.set_label(cbar_labels[name], rotation=270, labelpad=18, fontsize=base_font-1)
-            cbar.ax.tick_params(labelsize=base_font-3, length=3)
+            cbar.set_label(cbar_labels[name], rotation=270, labelpad=18, fontsize=base_font)
+            cbar.ax.tick_params(labelsize=base_font-2, length=3)
 
         fig.subplots_adjust(wspace=0.10, hspace=0.16)
         out_base = f"{model_type.lower()}_{descriptor_type}_pair3d_combined_{out_tag}_pca_panel"
@@ -260,6 +322,7 @@ def _pair_panel_combined_two_views_3d(
         fig.savefig(os.path.join(output_dir, f"{out_base}.png"),  dpi=600, bbox_inches="tight")
         plt.close(fig)
 
+    # make the two views with the SAME 3D PCs
     sol_vals, sol_lbls = _role_vals_and_labels("solute")
     _plot_view("solute", sol_vals, sol_lbls, out_tag="soluteview")
 
@@ -267,133 +330,54 @@ def _pair_panel_combined_two_views_3d(
     _plot_view("solvent", solv_vals, solv_lbls, out_tag="solventview")
 
 
-# --- PUBLIC API -----------------------------------------------------------------
+# --- PUBLIC: produce FOUR figures ------------------------------------------------
 def compare_descriptor_pca(
     df,
     descriptor_cols,
     descriptor_type,
     solubility_col,
-    solute_name_col,   # kept for signature compatibility; not used below
+    solute_name_col,
     output_dir,
     model_type,
-    role_prefix="solute",   # which role to read LogP/MW/TPSA from: "solute" or "solvent"
-    show_variance=False,    # if True: axis labels include explained variance
-    pair_3d=True, 
+    base_font=12,
+    marker_size=14,
+    pair_3d=True,           # <<< NEW: render pair-level as 3D combined PCA
+    show_variance=False     # <<< NEW: hide variance percentages in axis labels if False
 ):
-    # --- PCA on the PAIR-LEVEL descriptor matrix provided ---
-    X = df[descriptor_cols].astype(float)
-    X_std = StandardScaler().fit_transform(X)
-    X_std = pd.DataFrame(X_std, index=df.index, columns=descriptor_cols).fillna(0)
+    import numpy as np, os, matplotlib.pyplot as plt
+    os.makedirs(output_dir, exist_ok=True)
 
-    pca = PCA(n_components=2)
-    pcs = pca.fit_transform(X_std)
-    evr = pca.explained_variance_ratio_
+    solute_cols  = [c for c in descriptor_cols if c.startswith("solute_")]
+    solvent_cols = [c for c in descriptor_cols if c.startswith("solvent_")]
+    pair_cols    = [c for c in descriptor_cols if c.startswith(("solute_","solvent_"))]
 
-    pc_df = pd.DataFrame(pcs, columns=["PC1", "PC2"], index=df.index)
-    pc_df["Solubility"] = df[solubility_col].values
+    vmin, vmax = np.nanpercentile(df[solubility_col].values, [1, 99])
+    sol_norm = mcolors.Normalize(vmin=float(vmin), vmax=float(vmax))
 
-    # --- pick columns for coloring (from the chosen role) ---
-    pref = f"{role_prefix}_"
-    dt = (descriptor_type or "").lower()
-
-    if dt == "rdkit":
-        logp_col = pref + "MolLogP"  if pref + "MolLogP"  in df.columns else None
-        mw_col   = pref + "MolWt"    if pref + "MolWt"    in df.columns else None
-        tpsa_col = pref + "TPSA"     if pref + "TPSA"     in df.columns else None
-    elif dt == "mordred":
-        logp_col = pref + "SLogP"    if pref + "SLogP"    in df.columns else None
-        mw_col   = pref + "MW"       if pref + "MW"       in df.columns else None
-        tpsa_col = pref + "TopoPSA"  if pref + "TopoPSA"  in df.columns else None
-    else:  # MOE-like fallback
-        candidates_logp = [pref + "LogP(o/w)", pref + "SlogP", pref + "logP", pref + "LogP"]
-        logp_col = next((c for c in candidates_logp if c in df.columns), None)
-        mw_col   = next((c for c in df.columns if c.startswith(pref) and "weight" in c.lower()), None)
-        tpsa_col = next((c for c in df.columns if c.startswith(pref) and "tpsa"   in c.lower()), None)
-
-    # Labels
-    mollogp_label = f"{logp_col} (LogP-like)" if logp_col else "Unavailable"
-    molwt_label   = f"{role_prefix.capitalize()} Molecular Weight (log₁₀ scale)" if mw_col else "Unavailable"
-    tpsa_label    = f"{tpsa_col}" if tpsa_col else "Unavailable"
-
-    # Values for coloring
-    pc_df["MolLogP"]  = df[logp_col].values if logp_col else np.full(len(df), np.nan)
-    pc_df["logMolWt"] = (np.log10(df[mw_col].replace(0, np.nan)) if mw_col else np.full(len(df), np.nan))
-    pc_df["TPSA"]     = df[tpsa_col].values if tpsa_col else np.full(len(df), np.nan)
-
-    # Shared limits for a centered crosshair
-    lim = float(max(
-        abs(np.nanmax(pc_df["PC1"])), abs(np.nanmin(pc_df["PC1"])),
-        abs(np.nanmax(pc_df["PC2"])), abs(np.nanmin(pc_df["PC2"]))
-    ) or 1.0)
-    margin = lim * 0.05
-
-    # Axis labels
-    xlab = f"PC1 ({evr[0]*100:.1f}%)" if show_variance else "PC1"
-    ylab = f"PC2 ({evr[1]*100:.1f}%)" if show_variance else "PC2"
-
-    # Use robust, built-in matplotlib colormaps
-    properties = [
-        ("Solubility", "Solubility (log scale)", "viridis"),
-        ("MolLogP",    mollogp_label,             "coolwarm"),
-        ("logMolWt",   molwt_label,               "plasma"),
-        ("TPSA",       tpsa_label,                "cividis"),
-    ]
-
-    # Shared solubility normalization so panels are comparable
-    sol_vals = pc_df["Solubility"].values
-    if np.isfinite(sol_vals).any():
-        vmin, vmax = np.nanpercentile(sol_vals, [1, 99])
+    # 1–2) PAIR-LEVEL (combined) — 3D or 2D depending on flag
+    if pair_cols:
+        if pair_3d:
+            _pair_panel_combined_two_views_3d(
+                df, pair_cols, descriptor_type, solubility_col, output_dir, model_type,
+                base_font=base_font, marker_size=marker_size, sol_norm=sol_norm,
+                show_variance=show_variance
+            )
+        else:
+            # if you still want the 2D combined pair figures, call your 2D function here
+            pass
     else:
-        vmin, vmax = float(np.nanmin(sol_vals)), float(np.nanmax(sol_vals))
-    sol_norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        print("No pair-level descriptor columns (solute_* / solvent_).")
 
-    # Plot
-    fig, axes = plt.subplots(2, 2, figsize=(13.46, 11), dpi=600)
-    axes = axes.flatten()
+    # 3) ENTITY-LEVEL — SOLUTE
+    if solute_cols:
+        _role_panel(df, "solute", descriptor_type, solubility_col, output_dir, model_type,
+                    solute_cols, rows_mode="entity",
+                    base_font=base_font, marker_size=marker_size, sol_norm=sol_norm)
 
-    if pair_3d:
-        pair_cols = [c for c in descriptor_cols if c.startswith(("solute_", "solvent_"))] or list(descriptor_cols)
-        _pair_panel_combined_two_views_3d(
-            df, pair_cols, descriptor_type, solubility_col, output_dir, model_type,
-            base_font=12, marker_size=10, sol_norm=sol_norm, show_variance=show_variance
-        )
+    # 4) ENTITY-LEVEL — SOLVENT
+    if solvent_cols:
+        _role_panel(df, "solvent", descriptor_type, solubility_col, output_dir, model_type,
+                    solvent_cols, rows_mode="entity",
+                    base_font=base_font, marker_size=marker_size, sol_norm=sol_norm)
 
-    for ax, (col, label, cmap) in zip(axes, properties):
-        vals = pc_df[col].values
-        if np.all(np.isnan(vals)):
-            # Plot anyway with zeros, and annotate
-            vals = np.zeros_like(pc_df["PC1"].values)
-            print(f"⚠️ {col} is entirely NaN — plotting zeros for visual continuity.")
 
-        norm = sol_norm if col == "Solubility" else None
-
-        sc = ax.scatter(
-            pc_df["PC1"], pc_df["PC2"],
-            c=vals, cmap=cmap, norm=norm,
-            s=20, edgecolors='none', alpha=0.85
-        )
-
-        ax.set_xlim(-lim - margin, lim + margin)
-        ax.set_ylim(-lim - margin, lim + margin)
-        ax.axhline(0, color='black', linestyle='--', linewidth=0.6)
-        ax.axvline(0, color='black', linestyle='--', linewidth=0.6)
-        ax.set_xlabel(xlab, fontsize=10, labelpad=6)
-        ax.set_ylabel(ylab, fontsize=10, labelpad=6)
-        title_map = {"logMolWt": "log10(MW)"}
-        ax.set_title(f"PCA colored by {title_map.get(col, label)}", fontsize=11, pad=10)
-        ax.tick_params(axis='both', labelsize=8)
-
-        cbar = fig.colorbar(sc, ax=ax, pad=0.02, shrink=0.85)
-        cbar.set_label(label, fontsize=9)
-
-        # clean frame
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.xaxis.set_ticks_position('bottom')
-        ax.yaxis.set_ticks_position('left')
-
-    plt.tight_layout()
-    out_base = f"{model_type.lower()}_{descriptor_type}_pair2d_pca_panel"
-    fig.savefig(os.path.join(output_dir, f"{out_base}.tiff"), dpi=600, bbox_inches='tight')
-    fig.savefig(os.path.join(output_dir, f"{out_base}.png"),  dpi=600, bbox_inches='tight')
-    plt.close(fig)
