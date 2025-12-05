@@ -1,0 +1,64 @@
+﻿solute_name,solvent_name,solute_smiles,solvent_smiles,solubility_g_100g_log,cosmo_solubility_g_100g_log
+(+)-usnic acid,ethanol,CC(=O)C1=C(O)C=C2Oc3c(C(C)=O)c(O)c(C)c(O)c3[C@]2(C)C1=O,CCO,-1.404118646,0.300359338
+(+)-usnic acid,water,CC(=O)C1=C(O)C=C2Oc3c(C(C)=O)c(O)c(C)c(O)c3[C@]2(C)C1=O,O,-3.198166742,-4.347832927
+(+)-usnic acid,ethylacetate,CC(=O)C1=C(O)C=C2Oc3c(C(C)=O)c(O)c(C)c(O)c3[C@]2(C)C1=O,CCOC(C)=O,-0.211534034,0.770989104
+(+)-usnic acid,acetone,CC(=O)C1=C(O)C=C2Oc3c(C(C)=O)c(O)c(C)c(O)c3[C@]2(C)C1=O,CC(C)=O,-0.353509,0.961915051
+(+)-usnic acid,n-hexane,CC(=O)C1=C(O)C=C2Oc3c(C(C)=O)c(O)c(C)c(O)c3[C@]2(C)C1=O,CCCCCC,-1.492165001,-1.804591444
+1-phenylurea,ethanol,NC(=O)Nc1ccccc1,CCO,1.0684574,1.805425909
+1-phenylurea,methanol,NC(=O)Nc1ccccc1,CO,1.26847534,2.10166326
+1-phenylurea,isopropanol,NC(=O)Nc1ccccc1,CC(C)O,0.57340048,1.6564425
+1-phenylurea,water,NC(=O)Nc1ccccc1,O,-0.203244501,1.3042508
+1-phenylurea,ethylacetate,NC(=O)Nc1ccccc1,CCOC(C)=O,0.606086233,1.669214323
+1-phenylurea,n-propanol,NC(=O)Nc1ccccc1,CCCO,0.891566479,1.603628363
+1-phenylurea,acetonitrile,NC(=O)Nc1ccccc1,CC#N,0.54384309,2.086637366
+1-phenylurea,DMF,NC(=O)Nc1ccccc1,CN(C)C=O,1.743153807,2.106865788
+1-phenylurea,"1,4-dioxane",NC(=O)Nc1ccccc1,C1COCCO1,0.457839441,1.862050694
+1-phenylurea,ethyleneglycol,NC(=O)Nc1ccccc1,OCCO,1.076362541,1.820291621
+1-phenylurea,NMP,NC(=O)Nc1ccccc1,CN1CCCC1=O,1.005275443,1.968962972
+1-phenylurea,"1,2-dichloroethane",NC(=O)Nc1ccccc1,ClCCCl,-0.884791901,0.738970923
+(2-naphthylthio)aceticacid,ethanol,O=C(O)CSc1ccc2ccccc2c1,CCO,0.201041392,2.193075906
+(2-naphthylthio)aceticacid,methanol,O=C(O)CSc1ccc2ccccc2c1,CO,-0.09194478,2.290257314
+(2-naphthylthio)aceticacid,isopentanol,O=C(O)CSc1ccc2ccccc2c1,CC(C)O,-0.692176434,1.911767848
+(2-naphthylthio)aceticacid,water,O=C(O)CSc1ccc2ccccc2c1,O,-2.328330755,-2.046355416
+(2-naphthylthio)aceticacid,DMF,O=C(O)CSc1ccc2ccccc2c1,CN(C)C=O,0.396885748,2.459955804
+Benzimidazole,ethanol,c1ccc2[nH]cnc2c1,CCO,1.449384073,-1.285044585
+Benzimidazole,methanol,c1ccc2[nH]cnc2c1,CO,1.667406772,-1.153855723
+Benzimidazole,isopropanol,c1ccc2[nH]cnc2c1,CC(C)O,1.259706755,-1.377528124
+Benzimidazole,water,c1ccc2[nH]cnc2c1,O,-0.241178844,-3.290557374
+Benzimidazole,ethylacetate,c1ccc2[nH]cnc2c1,CCOC(C)=O,0.235501878,-1.93226003
+Benzimidazole,n-propanol,c1ccc2[nH]cnc2c1,CCCO,1.369321347,-1.456696435
+Benzimidazole,acetone,c1ccc2[nH]cnc2c1,CC(C)=O,0.793223468,-1.462496144
+Benzimidazole,n-butanol,c1ccc2[nH]cnc2c1,CCCCO,1.30708,-1.608964114
+Benzimidazole,acetonitrile,c1ccc2[nH]cnc2c1,CC#N,0.414625201,-2.113570275
+Benzimidazole,isobutanol,c1ccc2[nH]cnc2c1,CC(C)CO,1.262056021,-1.678548604
+Benzimidazole,"1,4-dioxane",c1ccc2[nH]cnc2c1,C1COCCO1,0.466504699,-1.606476835
+Benzimidazole,methylacetate,c1ccc2[nH]cnc2c1,COC(C)=O,0.304142583,-1.832490729
+Benzimidazole,2-butanone,c1ccc2[nH]cnc2c1,CCC(C)=O,0.759528552,-1.618322489
+Benzimidazole,n-pentanol,c1ccc2[nH]cnc2c1,CCCCCO,1.259823799,-1.75376474
+Benzimidazole,sec-butanol,c1ccc2[nH]cnc2c1,CCC(C)O,1.290583183,-1.509494126
+Benzimidazole,n-butylacetate,c1ccc2[nH]cnc2c1,CCCCOC(C)=O,0.016377807,-2.242653062
+Benzimidazole,n-propylacetate,c1ccc2[nH]cnc2c1,CCCOC(C)=O,0.085216677,-2.105580504
+Benzimidazole,isopropylacetate,c1ccc2[nH]cnc2c1,CC(=O)OC(C)C,0.119164694,-2.087835557
+Benzimidazole,isobutylacetate,c1ccc2[nH]cnc2c1,CC(=O)OCC(C)C,0.016923015,-2.277105519
+"1,3-dimethylurea",isopropanol,CNC(=O)NC,CC(C)O,1.936960705,1.792188033
+"1,3-dimethylurea",water,CNC(=O)NC,O,2.521629762,2.632260847
+"1,3-dimethylurea",ethylacetate,CNC(=O)NC,CCOC(C)=O,0.807506731,1.126574563
+"1,3-dimethylurea",acetone,CNC(=O)NC,CC(C)=O,1.513781565,1.567232913
+"1,3-dimethylurea",acetonitrile,CNC(=O)NC,CC#N,1.576293831,1.822135243
+"1,3-dimethylurea",sec-butanol,CNC(=O)NC,CCC(C)O,1.862960464,1.616318413
+"1,3-dimethylurea",n-butylacetate,CNC(=O)NC,CCCCOC(C)=O,0.361159089,0.654996933
+1-hydroxybenzotriazole,ethanol,On1nnc2ccccc21,CCO,1.211639681,1.964412919
+1-hydroxybenzotriazole,methanol,On1nnc2ccccc21,CO,1.22569917,2.069982203
+1-hydroxybenzotriazole,isopropanol,On1nnc2ccccc21,CC(C)O,0.991908368,1.935640965
+1-hydroxybenzotriazole,ethylacetate,On1nnc2ccccc21,CCOC(C)=O,0.248559548,1.757827537
+1-hydroxybenzotriazole,n-propanol,On1nnc2ccccc21,CCCO,1.072933786,1.847238383
+1-hydroxybenzotriazole,acetone,On1nnc2ccccc21,CC(C)=O,0.769099548,2.067668711
+1-hydroxybenzotriazole,acetonitrile,On1nnc2ccccc21,CC#N,0.166575014,1.53574434
+1-hydroxybenzotriazole,DMF,On1nnc2ccccc21,CN(C)C=O,1.303100757,2.241060707
+1-hydroxybenzotriazole,toluene,On1nnc2ccccc21,Cc1ccccc1,-2.323406297,-1.09116604
+1-hydroxybenzotriazole,"1,4-dioxane",On1nnc2ccccc21,C1COCCO1,0.498683234,1.973859212
+1-hydroxybenzotriazole,2-butanone,On1nnc2ccccc21,CCC(C)=O,0.727012053,2.003791291
+1-hydroxybenzotriazole,DMSO,On1nnc2ccccc21,CS(C)=O,1.189357024,2.210921955
+1-hydroxybenzotriazole,isopentanol,On1nnc2ccccc21,CC(C)CCO,0.360356721,1.664461652
+1-hydroxybenzotriazole,n-hexanol,On1nnc2ccccc21,CCCCCCO,0.33010224,1.510166466
+1-hydroxybenzotriazole,n-heptanol,On1nnc2ccccc21,CCCCCCCO,0.292038395,1.405658524
