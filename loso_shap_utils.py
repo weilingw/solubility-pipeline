@@ -21,7 +21,7 @@ def compute_loso_shap_and_visualize(
     model_type,
     bit_mapping_path
 ):
-    print(" Computing SHAP values from LOSO-CV models...")
+    print("Computing SHAP values from LOSO-CV models...")
 
     solute_names = df[solute_name_col].unique()
     all_loso_shap = []
@@ -64,4 +64,4 @@ def compute_loso_shap_and_visualize(
     )
 
     summarize_bit_frequency(df, top20_bits, base_output_path)
-    print(" LOSO SHAP heatmap and bit visualizations generated.")
+    print("LOSO SHAP heatmap and bit visualizations generated.")
