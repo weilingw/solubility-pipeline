@@ -20,7 +20,7 @@ def generate_mordred_shap_heatmap(
     kfold_test_indices=None,
 ):
     os.makedirs(output_dir, exist_ok=True)
-    print(" Generating SHAP heatmap for Mordred descriptors...")
+    print("Generating SHAP heatmap for Mordred descriptors...")
     # 0) Shared row order (highest -> lowest mean solubility)
     def _default_order(df, target_col="solubility_g_100g_log", id_col="solute_name"):
         return (
@@ -114,4 +114,4 @@ def generate_mordred_shap_heatmap(
         activation_matrix=activation_loso
     )
 
-    print(" Mordred SHAP heatmaps and matrix saved.")
+    print("Mordred SHAP heatmaps and matrix saved.")
