@@ -1,7 +1,5 @@
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-for k in ("OMP_NUM_THREADS","OPENBLAS_NUM_THREADS","MKL_NUM_THREADS","NUMEXPR_NUM_THREADS"):
-    os.environ[k] = "1"
 import re
 import json
 import numpy as np
@@ -11,7 +9,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import unicodedata as ud
 from tqdm import tqdm
-os.environ["OMP_NUM_THREADS"] = "8" ##optional
+from math import sqrt
+os.environ["OMP_NUM_THREADS"] = "8"
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from sklearn.pipeline import Pipeline
@@ -24,16 +23,24 @@ from sklearn.feature_selection import VarianceThreshold
 from mordred import Calculator, descriptors
 from r2_scrambling import permutation_test_kfold, permutation_test_loso
 from sklearn.model_selection import KFold 
+from replica import run_replicated_cv
+
 
 
 # === Global Settings ===
-model_type = 'svm'              # 'rf', 'xgb', 'svm'
-descriptor_type = 'morgan'         # 'morgan', 'mordred', 'moe', 'rdkit'
+model_type = 'rf'              # 'rf', 'xgb', 'svm'
+descriptor_type = 'moe'         # 'morgan', 'mordred', 'moe', 'rdkit'
 use_hybrid_mode = True       # Use COSMO features
-use_random_search = True     # Whether using 
+use_random_search = False     # Whether using 
 use_bit_visualization = False      # only for morgan
 use_saved_models = False
 enable_y_scrambling =  False   # set False to skip all scrambling work
+
+use_gpu = False
+_env_gpu = os.getenv("USE_GPU")
+if _env_gpu is not None:
+    use_gpu = _env_gpu.strip().lower() in ("1", "true", "yes", "y", "on")
+print(f"▶ USE_GPU = {use_gpu}")
 
 # --- Metadata strings ---
 hybrid_str = 'hybrid' if use_hybrid_mode else 'pure'
@@ -51,6 +58,7 @@ df.columns = [re.sub(r'[\u00A0\u200B\u200C\u200D\uFEFF]', ' ', col) for col in d
 df.columns = [ud.normalize('NFKD', col).encode('ascii', 'ignore').decode().strip() for col in df.columns]
 df = df.sample(frac=1, random_state=808).reset_index(drop=True)
 
+
 solute_name_col = next(col for col in df.columns if 'solute' in col.lower() and 'name' in col.lower())
 smiles_col = next(col for col in df.columns if 'smiles' in col.lower())
 
@@ -62,6 +70,7 @@ if use_hybrid_mode:
     cosmo_feature = cosmo_cols[0]
 else:
     cosmo_feature = None
+
 
 if use_hybrid_mode and cosmo_feature:
     cosmo_df = df[[solute_name_col, 'solvent_name', 'solubility_g_100g_log', cosmo_feature]].copy()
@@ -99,22 +108,29 @@ df["solvent_smiles"] = df["solvent_smiles"].map(
     lambda x: Chem.MolToSmiles(Chem.MolFromSmiles(x)) if pd.notnull(x) else x
 )
 if descriptor_type == 'morgan':
+    # === Canonicalize SMILES once and update in df ===
+    for col in ["solute_smiles", "solvent_smiles"]:
+        df[col] = df[col].map(lambda x: Chem.MolToSmiles(Chem.MolFromSmiles(x)) if pd.notnull(x) else x)
+
+    # === Set Morgan Fingerprint constants ===
     FINGERPRINT_SIZE = 2048
     MORGAN_RADIUS = 2
 
+    # === Fingerprint function with bitInfo ===
     def smiles_to_fp_with_bitinfo(smi):
-        if not isinstance(smi, str) or not smi.strip():
-            return np.zeros(FINGERPRINT_SIZE, dtype=np.int8), {}
         mol = Chem.MolFromSmiles(smi)
-        if mol is None:
-            return np.zeros(FINGERPRINT_SIZE, dtype=np.int8), {}
-        bitInfo = {}
-        fp = AllChem.GetMorganFingerprintAsBitVect(
-            mol, radius=MORGAN_RADIUS, nBits=FINGERPRINT_SIZE, bitInfo=bitInfo
-        )
-        arr = np.frombuffer(fp.ToBitString().encode('ascii'), 'S1').view(np.uint8) - ord(b'0')  # fast
-        return arr.astype(np.int8, copy=False), bitInfo
+        if mol:
+            bitInfo = {}
+            fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=MORGAN_RADIUS, nBits=FINGERPRINT_SIZE, bitInfo=bitInfo)
+            arr = np.zeros((FINGERPRINT_SIZE,), dtype=int)
+            for i in range(FINGERPRINT_SIZE):
+                arr[i] = int(fp[i])
+            return arr, bitInfo
+        else:
+            return np.zeros(FINGERPRINT_SIZE, dtype=int), {}
 
+    # === Prepare descriptor cols and bit mapping ===
+    full_fp = []
     descriptor_cols = []
     bit_mapping = {}
     all_bitInfo = {"solute": {}, "solvent": {}}
@@ -123,37 +139,47 @@ if descriptor_type == 'morgan':
         fp_list = []
         role_bitInfo = {}
 
-        # build aligned lists (no skipping)
         for idx, smi in df[smiles_col].items():
+            if pd.isna(smi):
+                print(f"Skipping missing SMILES at index {idx}")
+                continue
             fp_bits, bitInfo = smiles_to_fp_with_bitinfo(smi)
             fp_list.append(fp_bits)
-            role_bitInfo[idx] = bitInfo
+            role_bitInfo[idx] = bitInfo  #  Store bitInfo by row index
 
-        fp_array = np.vstack(fp_list)  # shape (n_rows, 2048)
+        # Create role-specific DataFrame
         descriptor_cols_role = [f"{role}_FP_{i}" for i in range(FINGERPRINT_SIZE)]
-        df_fp = pd.DataFrame(fp_array, columns=descriptor_cols_role, index=df.index)
+        df_fp = pd.DataFrame(fp_list, columns=descriptor_cols_role, index=df.index)
 
-        # Shannon entropy filter
-        p = df_fp.mean(axis=0)  # fraction of 1s
-        entropies = -(p*np.log2(p).where(p.between(1e-12, 1-1e-12), 1) +
-                      (1-p)*np.log2(1-p).where(p.between(1e-12, 1-1e-12), 1)).fillna(0.0)
+        # === Shannon entropy filter ===
+        def shannon_entropy(col):
+            p = col.mean()
+            return -(p * np.log2(p) + (1 - p) * np.log2(1 - p)) if 0 < p < 1 else 0.0
 
-        retained_bits = entropies[entropies > 0.001].index.tolist()
-        if retained_bits:
-            df = pd.concat([df, df_fp[retained_bits]], axis=1)
-            descriptor_cols.extend(retained_bits)
-            for col in retained_bits:
-                local_bit_id = int(col.replace(f"{role}_FP_", ""))
-                bit_mapping[col] = (role, local_bit_id)
+        entropy_threshold = 0.001
+        entropies = df_fp.apply(shannon_entropy, axis=0)
+        retained_bits = entropies[entropies > entropy_threshold].index.tolist()
+
+        # Merge into main dataframe
+        df = pd.concat([df, df_fp[retained_bits]], axis=1)
+        full_fp.extend(retained_bits)
+        descriptor_cols.extend(retained_bits)
+
+        # Update bit mapping
+        for col in retained_bits:
+            local_bit_id = int(col.replace(f"{role}_FP_", ""))
+            bit_mapping[col] = (role, local_bit_id)
 
         all_bitInfo[role] = role_bitInfo
+
+
 
 elif descriptor_type == 'mordred':
     descriptor_cols = []
     all_bitInfo = {"solute": {}, "solvent": {}}
 
     for role, smiles_col in [('solute', 'solute_smiles'), ('solvent', 'solvent_smiles')]:
-        print(f" Computing Mordred descriptors for: {role}")
+        print(f"Computing Mordred descriptors for: {role}")
 
         mordred_raw = compute_mordred_descriptors(df[smiles_col])
         mordred_raw.index = df.index
@@ -163,7 +189,7 @@ elif descriptor_type == 'mordred':
         retained_cols = missing_ratio[missing_ratio <= 0.1].index.tolist()
         mordred_filtered = mordred_raw[retained_cols].fillna(0)
 
-        print(f" {role} descriptors after NaN filtering: {len(retained_cols)}")
+        print(f"{role} descriptors after NaN filtering: {len(retained_cols)}")
 
         # Step 2: Remove zero-variance descriptors
         from sklearn.feature_selection import VarianceThreshold
@@ -171,7 +197,7 @@ elif descriptor_type == 'mordred':
         selector.fit(mordred_filtered)
         retained_final_cols = [mordred_filtered.columns[i] for i in selector.get_support(indices=True)]
 
-        print(f" {role} descriptors after variance filter: {len(retained_final_cols)}")
+        print(f"{role} descriptors after variance filter: {len(retained_final_cols)}")
 
         ## Step 3: Prefix and append
         mordred_prefixed = mordred_filtered[retained_final_cols].copy()
@@ -195,8 +221,9 @@ elif descriptor_type == 'moe':
 
     # Step 0: Drop non-descriptor columns 
     cols_to_exclude = list(range(0, 20)) 
-    ## cols_to_exclude = list(range(0, 22)) ##for opencosmo test only 
+    # cols_to_exclude = list(range(0, 22)) ##for opencosmo test only 
     all_columns = df.columns.tolist()
+
 
     # Initial MOE descriptor selection (excluding known metadata)
     moe_descriptor_cols = [col for i, col in enumerate(all_columns)
@@ -207,7 +234,7 @@ elif descriptor_type == 'moe':
     retained_cols = missing_ratio[missing_ratio <= 0.1].index.tolist()
     df_filtered = df[retained_cols].copy()
 
-    print(f" MOE descriptors after NaN filter: {len(retained_cols)}")
+    print(f"MOE descriptors after NaN filter: {len(retained_cols)}")
 
     # Step 2: Fill remaining NaNs with 0
     df_filtered = df_filtered.fillna(0)
@@ -217,12 +244,11 @@ elif descriptor_type == 'moe':
     selector.fit(df_filtered)
     retained_final_cols = [df_filtered.columns[i] for i in selector.get_support(indices=True)]
 
-    print(f" MOE descriptors after variance filter: {len(retained_final_cols)}")
+    print(f"MOE descriptors after variance filter: {len(retained_final_cols)}")
 
     # Step 4: Coerce to numeric (if necessary) and update df
     df[retained_final_cols] = df_filtered[retained_final_cols].apply(pd.to_numeric, errors='coerce')
     descriptor_cols = retained_final_cols
-
 
 
 elif descriptor_type == 'rdkit':
@@ -263,16 +289,21 @@ for col in ['solute_name', 'solvent_name', 'solubility_g_100g_log']:
     if col not in df.columns:
         df[col] = base_cols[col]
 
-# === Handle COSMO feature for hybrid mode ===
-if use_hybrid_mode and cosmo_feature:
-    # make sure it is numeric
-    df[cosmo_feature] = pd.to_numeric(df[cosmo_feature], errors="coerce")
-    if cosmo_feature not in descriptor_cols:
-        descriptor_cols.append(cosmo_feature)
+if use_hybrid_mode and cosmo_feature not in descriptor_cols:
+    descriptor_cols.append(cosmo_feature)
 
-# Final filter: only keep numeric descriptors
 descriptor_cols = [col for col in descriptor_cols if np.issubdtype(df[col].dtype, np.number)]
 print(f"Descriptors used: {len(descriptor_cols)}")
+
+# === Freeze descriptor set for future external validation ===
+descriptor_signature = f"{descriptor_type}_{hybrid_str}"   # e.g. "mordred_hybrid"
+descriptor_cols_path = os.path.join(base_output_path, f"{descriptor_signature}_descriptor_cols.json")
+
+with open(descriptor_cols_path, "w", encoding="utf-8") as f:
+    json.dump(descriptor_cols, f, ensure_ascii=False, indent=2)
+
+print(f"Saved descriptor column list to: {descriptor_cols_path}")
+
 
 
 # === Setup ML Model & Hyperparams (GPU/CPU safe) ===
@@ -304,12 +335,20 @@ elif model_type == 'xgb':
 
     if ver_major >= 2:
         # Modern API: use 'device'
-        xgb_kwargs.update(device='cpu', n_jobs=8)
-        rs_n_jobs = 1
+        if use_gpu:
+            xgb_kwargs.update(device='cuda', n_jobs=1)
+            rs_n_jobs = 1       # one CV fit at a time on a single GPU
+        else:
+            xgb_kwargs.update(device='cpu', n_jobs=8)
+            rs_n_jobs = 1
     else:
         # Backward-compatible path for XGBoost 1.x
-        xgb_kwargs.update(predictor='cpu_predictor', n_jobs=8)
-        rs_n_jobs = 1
+        if use_gpu:
+            xgb_kwargs.update(tree_method='gpu_hist', predictor='gpu_predictor', n_jobs=1)
+            rs_n_jobs = 1
+        else:
+            xgb_kwargs.update(predictor='cpu_predictor', n_jobs=8)
+            rs_n_jobs = 1
     base_model = XGBRegressor(**xgb_kwargs)
     param_grid = {
         'n_estimators': [100, 200, 500],
@@ -323,12 +362,7 @@ elif model_type == 'xgb':
     }
 
 elif model_type == 'svm':
-    from sklearn.preprocessing import FunctionTransformer
-    def _to_array(X):
-        # Convert DataFrame -> numpy; leave numpy as-is
-        return X.values if isinstance(X, pd.DataFrame) else X
     base_model = Pipeline([
-        ('to_array', FunctionTransformer(_to_array, validate=False)),
         ('scaler', StandardScaler()),
         ('svr', SVR())
     ])
@@ -348,16 +382,6 @@ print(f"Descriptors used: {len(descriptor_cols)}")
 print(f"COSMO feature included: {cosmo_feature if use_hybrid_mode else 'None'}")
 
 
-def _to_numpy_strict(X_df, y_ser, fill_value=0):
-    X = X_df.select_dtypes(include=[np.number]).copy()
-    X = X.replace([np.inf, -np.inf], np.nan).fillna(fill_value)
-
-    y = pd.to_numeric(y_ser, errors="coerce").replace([np.inf, -np.inf], np.nan)
-    y = y.fillna(y.median() if fill_value == "median" else fill_value)
-
-    X_np = np.ascontiguousarray(X.to_numpy(dtype=np.float32))
-    y_np = np.ascontiguousarray(y.to_numpy(dtype=np.float32).ravel())
-    return X_np, y_np
 
 prediction_dir = os.path.join(base_output_path, "predictions")
 os.makedirs(prediction_dir, exist_ok=True)
@@ -398,27 +422,27 @@ else:
     kfold_preds = []
 
     for train_idx, test_idx in tqdm(kfold_splits, total=10, desc="Training 10-fold models"):
-        X_train_df = df.iloc[train_idx][descriptor_cols]
-        y_train_ser = df.iloc[train_idx]['solubility_g_100g_log']
-        X_test_df  = df.iloc[test_idx][descriptor_cols]
-        y_test_ser  = df.iloc[test_idx]['solubility_g_100g_log']
+        X_train = df.iloc[train_idx][descriptor_cols]
+        y_train = df.iloc[train_idx]['solubility_g_100g_log']
+        X_test  = df.iloc[test_idx][descriptor_cols]
+        y_test  = df.iloc[test_idx]['solubility_g_100g_log']
         solute_test  = df.iloc[test_idx][solute_name_col]
         solvent_test = df.iloc[test_idx]["solvent_name"]
 
-        X_train, y_train = _to_numpy_strict(X_train_df, y_train_ser, fill_value=0)
-        X_test,  y_test  = _to_numpy_strict(X_test_df,  y_test_ser, fill_value=0)
-
+        if model_type == 'svm':
+            X_train = X_train.fillna(0)
+            X_test = X_test.fillna(0)
 
         model = RandomizedSearchCV(
-            base_model, param_distributions=param_grid, n_iter=10, cv=3,
-            scoring='neg_root_mean_squared_error', random_state=42,
-            n_jobs=rs_n_jobs, error_score="raise",
+            base_model, param_distributions=param_grid, n_iter=10, cv=3, 
+            scoring='neg_root_mean_squared_error', random_state=42, n_jobs=rs_n_jobs, error_score="raise",   
         ) if use_random_search else base_model
 
         model.fit(X_train, y_train)
         model_store_kfold.append(model)
         if use_random_search and hasattr(model, "best_params_"):
-            best_params_kfold.append(model.best_params_)
+            best_params_kfold.append(model.best_params_)  # NEW
+
 
         fitted_model = model.best_estimator_ if hasattr(model, 'best_estimator_') else model
         y_pred = fitted_model.predict(X_test)
@@ -426,11 +450,10 @@ else:
         temp_df = pd.DataFrame({
             'solute_name': solute_test,
             'solvent_name': solvent_test,
-            'solubility_g_100g_log': y_test,   # y_test is a NumPy array; if you prefer Series: y_test_ser
+            'solubility_g_100g_log': y_test,
             'prediction': y_pred
         })
         kfold_preds.append(temp_df)
-
 
     dump(model_store_kfold, os.path.join(base_output_path,  f"{tag}_kfold_models.joblib"))
     print("10-fold models saved.")
@@ -449,6 +472,18 @@ else:
     kfold_df.to_csv(os.path.join(prediction_dir, f"{tag}_kfold_predictions.csv"), index=False)
     print("10-fold predictions saved.")
 
+if use_random_search:
+    bp_json = os.path.join(base_output_path, f"{tag}_kfold_best_params.json")
+    if os.path.exists(bp_json):
+        with open(bp_json, "r", encoding="utf-8") as f:
+            best_params_kfold = json.load(f)
+        print(f"Loaded k-fold best params for replica from: {bp_json}")
+    else:
+        # if it doesn't exist, best_params_kfold is already whatever training built
+        best_params_kfold = best_params_kfold if 'best_params_kfold' in locals() else []
+        print("No saved k-fold best params found; using in-memory best_params_kfold.")
+else:
+    best_params_kfold = []
 
 # === Train and Save LOSO Models + Predictions ===
 best_params_loso = {}  # collect best params per solute (if tuned)
@@ -505,23 +540,29 @@ else:
         train_df = df[df[solute_name_col] != solute]
         test_df  = df[df[solute_name_col] == solute]
 
-        X_train_df = train_df[descriptor_cols]
-        y_train_ser = train_df['solubility_g_100g_log']
-        X_test_df  = test_df[descriptor_cols]
-        y_test_ser = test_df['solubility_g_100g_log']
+        X_train = train_df[descriptor_cols]
+        y_train = train_df['solubility_g_100g_log']
+        X_test  = test_df[descriptor_cols]
+        y_test  = test_df['solubility_g_100g_log']
 
-        X_train, y_train = _to_numpy_strict(X_train_df, y_train_ser, fill_value=0)
-        X_test,  y_test  = _to_numpy_strict(X_test_df,  y_test_ser, fill_value=0)
-
+        if model_type == 'svm':
+            X_train = X_train.fillna(0)
+            X_test  = X_test.fillna(0)
 
         model = RandomizedSearchCV(
-            base_model, param_distributions=param_grid, n_iter=10, cv=3,
-            scoring='neg_root_mean_squared_error', random_state=42,
-            n_jobs=rs_n_jobs, error_score="raise",
+            base_model,
+            param_distributions=param_grid,
+            n_iter=10,
+            cv=3,
+            scoring='neg_root_mean_squared_error',
+            random_state=42,
+            n_jobs=rs_n_jobs,
+            error_score="raise",
         ) if use_random_search else base_model
 
         model.fit(X_train, y_train)
-        model_store_loso[solute] = model
+        model_store_loso[solute] = model  # <-- dict keyed by solute
+
         if use_random_search and hasattr(model, "best_params_"):
             best_params_loso[solute] = model.best_params_
 
@@ -529,13 +570,12 @@ else:
         y_pred = fitted_model.predict(X_test)
 
         temp_df = pd.DataFrame({
-            'solute_name': test_df[solute_name_col].values,
-            'solvent_name': test_df["solvent_name"].values,
-            'solubility_g_100g_log': y_test,  # or y_test_ser.values
+            'solute_name': test_df[solute_name_col],
+            'solvent_name': test_df["solvent_name"],
+            'solubility_g_100g_log': y_test,
             'prediction': y_pred
         })
         loso_preds.append(temp_df)
-
 
     # Save models (dict) and best params JSON (if tuned)
     dump(model_store_loso, loso_models_path)
@@ -627,11 +667,7 @@ if enable_y_scrambling:
     build_scrambling_matrices(scramble_dir)
 
 # === Plotting & Metrics ===
-from plots import (
-    run_all_prediction_visualizations,
-    plot_tuned_vs_cv_with_cosmo,
-    export_model_metrics
-)
+from plots import run_all_prediction_visualizations, export_model_metrics
 
 loso_df = pd.read_csv(os.path.join(base_output_path, "predictions", f"{tag}_loso_predictions.csv"))
 kfold_df = pd.read_csv(os.path.join(base_output_path, "predictions", f"{tag}_kfold_predictions.csv"))
@@ -653,13 +689,6 @@ run_all_prediction_visualizations(
 )
 
 export_model_metrics(combined_df, os.path.join(base_output_path, "model_metrics_summary.csv"))
-regex = rf"{model_type}.*{descriptor_type}.*{hybrid_str}.*{tuned_str}"
-plot_tuned_vs_cv_with_cosmo(
-    combined_df,
-    os.path.join(base_output_path, "plot_output", f"{model_type.lower()}_{descriptor_type}_{hybrid_str}_tuned_LOSO_10Fold_vs_COSMO.png"),
-    model_regex=regex,
-    title=f"Tuned {model_type.upper()}–{descriptor_type} ({hybrid_str}): LOSO vs 10-fold vs COSMO-RS"
-)
 
 # === PCA ===
 import importlib, inspect, pca_rdkit
@@ -678,9 +707,10 @@ pca_rdkit.compare_descriptor_pca(
     solute_name_col=solute_name_col,
     output_dir=pca_out,
     model_type=model_type,
-    pair_3d=True,          
-    show_variance=False     
+    pair_3d=True,           # 3D for pair-level
+    show_variance=False     # axis labels: PC1, PC2, PC3 (no %)
 )
+
 #===SHAP Heatmap===
 if use_random_search and model_type.lower() != 'rf':
     print(f"Generating SHAP heatmap for {descriptor_type.upper()} descriptors...")
@@ -698,7 +728,8 @@ if use_random_search and model_type.lower() != 'rf':
             model_type=model_type,
             kfold_test_indices=kfold_test_indices 
         )
-        
+
+
     elif descriptor_type == 'moe':
         from moe_shap_heatmap import generate_moe_shap_heatmap
         generate_moe_shap_heatmap(df, descriptor_cols, model_store_kfold, model_store_loso, solute_name_col, "solubility_g_100g_log", os.path.join(base_output_path, "moe_shap_heatmap"), model_type, kfold_test_indices=kfold_test_indices)
@@ -750,4 +781,29 @@ if use_random_search and model_type.lower() != 'rf':
         )
 else:
     print("Skipping SHAP and visualization (no tuning). Or you used rf model.")
+# ============================================
+# Replicated CV (uncertainty on 10-fold only)
+# ============================================
+if use_random_search:
+    print("Running replicated CV for uncertainty estimates (separate from main fixed-seed results)...")
+
+    # Safety: best_params_loso may be dict or empty
+    _bp_loso = best_params_loso if ('best_params_loso' in locals() and best_params_loso) else None
+
+    run_replicated_cv(
+        df=df,
+        descriptor_cols=descriptor_cols,
+        solute_name_col=solute_name_col,   # kept for signature consistency
+        base_model=base_model,
+        model_tag=tag,
+        best_params_kfold=best_params_kfold if best_params_kfold else None,
+        best_params_loso=_bp_loso,
+        rs_n_jobs=rs_n_jobs,
+        n_rep=20,
+        base_seed=123,
+        output_dir=base_output_path,
+        solubility_col="solubility_g_100g_log",
+    )
+else:
+    print("Skipping replicated CV (untuned model).")
 
