@@ -54,22 +54,13 @@ def _collect_records(scramble_root: str):
     print(f"[summary] collected {len(recs)} records")
     return recs
 
-from matplotlib.ticker import MaxNLocator, FormatStrFormatter
-
-def _compute_xlim(perm, obs, include=None, pad_lo=0.08, pad_hi=0.10):
-    vals = [np.min(perm), np.max(perm), obs]
-    if include:
-        vals += list(include)
-    xlo = float(min(vals)); xhi = float(max(vals))
-    span = xhi - xlo if xhi > xlo else 1.0
-    return (xlo - pad_lo*span, xhi + pad_hi*span)
-
 def _plot_matrix(by_key, models, descs, cv_label, outfile):
     fig, axes = plt.subplots(len(models), len(descs),
                              figsize=(7, 4.5),
                              constrained_layout=True)
     axes = np.atleast_2d(axes)
 
+    # keep titles small and light so they don’t look “double bold”
     plt.rcParams['axes.titlesize'] = 9
     plt.rcParams['axes.titleweight'] = 'regular'
     plt.rcParams['axes.titlepad'] = 2
@@ -84,109 +75,87 @@ def _plot_matrix(by_key, models, descs, cv_label, outfile):
             r = by_key.get((m, d, cv_label))
 
             if r is None:
+                # put "No data" in the center, not at the top
                 ax.text(0.5, 0.55, "No data", transform=ax.transAxes,
                         ha="center", va="center", fontsize=PANEL_FS)
                 ax.set_xticks([]); ax.set_yticks([])
+                # title drawn *inside* the axes so it can’t touch anything above
                 ax.set_title(f"{m.upper()}–{d.capitalize()}",
-                             fontsize=PANEL_FS, y=0.88)
+                             fontsize=PANEL_FS, y=0.88)   # was 0.97
                 continue
 
             counts, _, _ = ax.hist(r["perm_R2"], bins='auto')
             ax.axvline(r["obs_R2"], linewidth=2)
 
-            # 95th percentile
-            p95 = float(np.percentile(r["perm_R2"], 95))
-            ax.axvline(p95, linestyle='--', linewidth=1.5, color='tab:green')
-
-            # y padding
             y_max = float(np.max(counts)) if counts.size else 1.0
             extra = max(2.0, 0.15 * y_max)
             ax.set_ylim(0, y_max + extra)
 
-            # local xlim
-            xmin = float(min(np.min(r["perm_R2"]), r["obs_R2"], p95))
-            xmax = float(max(np.max(r["perm_R2"]), r["obs_R2"], p95))
+            xmin = float(min(np.min(r["perm_R2"]), r["obs_R2"]))
+            xmax = float(max(np.max(r["perm_R2"]), r["obs_R2"]))
             span = xmax - xmin if xmax > xmin else 1.0
             ax.set_xlim(xmin - 0.08*span, xmax + 0.10*span)
 
-            # annotation
-            ax.text(0.62, 0.85,
+            ax.text(0.62, 0.85,  # a bit lower to leave headroom for the title
                     f"obs R² = {r['obs_R2']:.3f}\np = {r['p_value']:.4f}",
                     transform=ax.transAxes, ha="center", va="top", fontsize=ANNOT_FS-1,
                     bbox=dict(facecolor="white", alpha=0.85, edgecolor="none", pad=2))
 
-            # title inside the axes
+            if i == len(models) - 1:
+                ax.set_xlabel("R² under permutation", fontsize=PANEL_FS)
+            if j == 0:
+                ax.set_ylabel("Count", fontsize=PANEL_FS)
+
+            # title inside the axes to avoid any collision
             ax.set_title(f"{m.upper()}–{d.capitalize()}",
                          fontsize=PANEL_FS, y=1.02)
+
             ax.tick_params(labelsize=TICK_FS)
 
-    # 🔽 shared labels (instead of repeating in each subplot)
-    fig.supxlabel("R² under permutation", fontsize=PANEL_FS+1)
-    fig.supylabel("Count", fontsize=PANEL_FS+1)
 
     fig.set_constrained_layout_pads(w_pad=0.02, h_pad=0.02, wspace=0.06, hspace=0.06)
     plt.savefig(outfile, dpi=600, pad_inches=0.2)
-    tiff_out = os.path.splitext(outfile)[0] + ".tiff"
-    plt.savefig(tiff_out, dpi=600, pad_inches=0.2, format="tiff")
     plt.close(fig)
-    print(f" Saved matrix: {outfile} and {tiff_out}")
+    print(f" Saved matrix: {outfile}")
 
 
 
-def _save_histogram(perm_R2, obs_R2, title, out_png,
-                    p_val=None,
-                    column="single",
-                    font=9):
-    figsize = (3.3, 2.5) if column == "single" else (7.0, 4.5)
-    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
 
-    # compute p95 and set consistent local xlim that includes it
-    p95 = float(np.percentile(perm_R2, 95))
-    xlo, xhi = _compute_xlim(perm_R2, obs_R2, include=[p95])
-    ax.set_xlim(xlo, xhi)
-    ax.xaxis.set_major_locator(MaxNLocator(nbins=5))
-    ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+def _plot_pvalue_heatmap(by_key, models, descs, cv_label, outfile, vmin=0.0, vmax=None):
+    pv = pd.DataFrame(index=models, columns=descs, dtype=float)
+    for m in models:
+        for d in descs:
+            rec = by_key.get((m, d, cv_label))
+            pv.loc[m, d] = rec["p_value"] if rec else np.nan
 
-    # draw histogram and lines (once)
-    counts, _, _ = ax.hist(perm_R2, bins='auto', zorder=1)
-    ax.axvline(obs_R2, color='k', linewidth=2, zorder=3)
-    ax.axvline(p95, linestyle='--', linewidth=1.5, color='tab:green', zorder=3)
+    data = -np.log10(pv.astype(float).clip(lower=1e-12))
+    if vmax is None:
+        vmax = np.nanmax(data.to_numpy())
 
-    # y headroom
-    y_max = float(np.max(counts)) if counts.size else 1.0
-    extra = max(2.0, 0.15 * y_max)
-    ax.set_ylim(0, y_max + extra)
-
-    # labels & ticks
-    ax.set_title(title, fontsize=font + 1, pad=3)
-    ax.set_xlabel("R² under permutation", fontsize=font)
-    ax.set_ylabel("Count", fontsize=font)
-    ax.tick_params(labelsize=font)
-
-    # annotation
-    text = f"obs R² = {obs_R2:.3f}"
-    if p_val is not None:
-        text += f"\np = {p_val:.4f}"
-    ax.text(0.5, 0.88, text,
-            transform=ax.transAxes, ha="center", va="top", fontsize=font,
-            bbox=dict(facecolor="white", alpha=0.85, edgecolor="none", pad=2))
-
-     # Save PNG
-    plt.savefig(out_png, dpi=600, pad_inches=0.2)
-    # Save TIFF
-    out_tiff = os.path.splitext(out_png)[0] + ".tiff"
-    plt.savefig(out_tiff, dpi=600, pad_inches=0.2, format="tiff")
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    im = ax.imshow(data, aspect="auto", vmin=vmin, vmax=vmax)
+    ax.set_xticks(range(len(descs)));  ax.set_xticklabels([c.capitalize() for c in descs])
+    ax.set_yticks(range(len(models))); ax.set_yticklabels([m.upper() for m in models])
+    for i in range(len(models)):
+        for j in range(len(descs)):
+            val = pv.iloc[i, j]
+            if pd.notna(val):
+                ax.text(j, i, f"{val:.3f}", ha="center", va="center", fontsize=8)
+    cbar = plt.colorbar(im, ax=ax); cbar.set_label("-log10(p)")
+    ax.set_title(f"Y-scrambling p-values ({cv_label})")
+    plt.tight_layout()
+    plt.savefig(outfile, dpi=600)
     plt.close(fig)
-
+    print(f"🖼️ Saved heatmap: {outfile}")
 
 
 def build_scrambling_matrices(scramble_root: str,
-                              models=MODELS, descs=DESCS):
+                              models=MODELS, make_cv_heatmaps=True, descs=DESCS):
     os.makedirs(scramble_root, exist_ok=True)
     recs = _collect_records(scramble_root)
     by_key = {(r["model"], r["desc"], r["cv"]): r for r in recs}
 
-    # 🔽 NEW BLOCK: save one standalone histogram per record
+    #NEW BLOCK: save one standalone histogram per record
     for r in recs:
         stem = os.path.splitext(os.path.basename(r["path"]))[0]
         out = os.path.join(scramble_root, f"{stem}.single.png")
@@ -204,6 +173,12 @@ def build_scrambling_matrices(scramble_root: str,
                  os.path.join(scramble_root, "r2_scrambling_matrix_10fold.png"))
     _plot_matrix(by_key, models, descs, "LOSO",
                  os.path.join(scramble_root, "r2_scrambling_matrix_loso.png"))
+
+    if make_cv_heatmaps:
+        _plot_pvalue_heatmap(by_key, models, descs, "10-fold",
+            os.path.join(scramble_root, "r2_scrambling_pvalue_heatmap_10fold.png"))
+        _plot_pvalue_heatmap(by_key, models, descs, "LOSO",
+            os.path.join(scramble_root, "r2_scrambling_pvalue_heatmap_LOSO.png"))
 
         
 def _save_histogram(perm_R2, obs_R2, title, out_png,
@@ -223,19 +198,6 @@ def _save_histogram(perm_R2, obs_R2, title, out_png,
     xmax = float(max(np.max(perm_R2), obs_R2))
     span = xmax - xmin if xmax > xmin else 1.0
     ax.set_xlim(xmin - 0.08 * span, xmax + 0.10 * span)
-    
-    ax.xaxis.set_major_locator(MaxNLocator(nbins=5, prune=None))
-
-    p95 = float(np.percentile(perm_R2, 95))
-    xlo, xhi = _compute_xlim(perm_R2, obs_R2, include=[p95])
-    ax.set_xlim(xlo, xhi)
-    ax.xaxis.set_major_locator(MaxNLocator(nbins=5))
-    ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-
-    counts, _, _ = ax.hist(perm_R2, bins='auto', zorder=1)
-    ax.axvline(obs_R2, color='k', linewidth=2, zorder=3)
-    ax.axvline(p95, linestyle='--', linewidth=1.5, color='tab:green', zorder=3)
-
 
     # y headroom: fractional + absolute padding so top tick never clips
     y_max = float(np.max(counts)) if counts.size else 1.0
@@ -262,15 +224,3 @@ def _save_histogram(perm_R2, obs_R2, title, out_png,
 
 
 
-# --- optional CLI ---
-if __name__ == "__main__":
-    import argparse
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--root",
-        default=r"C:\Project\Nottingham\Tony\solubility\Systematic_study\checked\main\scrambling",
-        help="Folder (searched recursively) for *_r2_scrambling.csv")
-    ap.add_argument("--debug", action="store_true",
-        help="Print found keys/files")
-    args = ap.parse_args()
-
-    build_scrambling_matrices(args.root)
