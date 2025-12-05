@@ -1,7 +1,14 @@
 import os
 import pandas as pd
+import numpy as np
 import seaborn as sns
+import matplotlib.pyplot as plt
+
+from rdkit import Chem
 from bit_analysis import (
+    sanitize_filename,
+    create_bit_summary_visualization,
+    create_solute_summary_visualization,
     summarize_bit_frequency,
     visualize_top_bits_with_bitinfo
 )
@@ -30,8 +37,11 @@ def generate_morgan_shap_heatmap(
     use_bit_visualization=True
 ):
     order = get_canonical_solute_order(
-        full_df, solute_name_col=solute_name_col, solubility_col=solubility_col,
-        agg='median', ascending=False
+        full_df, 
+		solute_name_col=solute_name_col, 
+		solubility_col=solubility_col,
+        agg='median', 
+		ascending=False
     )
 
     global_shap_df = compute_global_shap_from_kfold_models(
@@ -40,7 +50,7 @@ def generate_morgan_shap_heatmap(
             descriptor_cols=descriptor_cols
         )
     if global_shap_df is None or global_shap_df.empty:
-        print("⚠️ global_shap_df is empty — skipping Morgan SHAP heatmaps.")
+        print("global_shap_df is empty — skipping Morgan SHAP heatmaps.")
         return
 
     for role in ["solute", "solvent"]:
@@ -50,10 +60,10 @@ def generate_morgan_shap_heatmap(
         # Filter descriptor cols specific to this role
         role_bit_cols = [c for c in descriptor_cols if c.startswith(f"{role}_FP_") and c.split("_")[-1].isdigit()]
         if not role_bit_cols:
-            print(f"⚠️ No {role} fingerprint columns found — skipping {role}.")
+            print(f"No {role} fingerprint columns found — skipping {role}.")
             continue
 
-        # === Select top 20 bits by mean absolute SHAP
+                # === Select top 20 bits by mean absolute SHAP
         top20 = (
             global_shap_df[role_bit_cols]
             .abs()
@@ -101,7 +111,7 @@ def generate_morgan_shap_heatmap(
             top_descriptors=top20,
         )
         if matrix_loso is None or matrix_loso.empty:
-            print("⚠️ LOSO SHAP matrix is empty — skipping LOSO heatmap for this role.")
+            print("LOSO SHAP matrix is empty — skipping LOSO heatmap for this role.")
             # still write an empty CSV so downstream scripts don’t break
             empty_path = os.path.join(role_output_dir, f"{model_type}_{role}_shap_matrix_global20_loso.csv")
             pd.DataFrame(columns=top20, index=[]).to_csv(empty_path, index=True)
@@ -131,7 +141,7 @@ def generate_morgan_shap_heatmap(
         top_bits_cleaned = [bit_mapping[col] for col in top20 if col in bit_mapping]
         summarize_bit_frequency(full_df, top_bits_cleaned, role_output_dir, role=role)
 
-        print(f" Extracted bit indices (cleaned): {top_bits_cleaned}")
+        print(f"Extracted bit indices (cleaned): {top_bits_cleaned}")
 
 
         if use_bit_visualization:
@@ -140,9 +150,9 @@ def generate_morgan_shap_heatmap(
             )
 
 
-            print(f"\n Top 20 {role} bit columns: {top20}")
-            print(f" Extracted bit indices (cleaned): {top_bits_cleaned}")
-            print(f" Bit mapping preview: {list(bit_mapping.items())[:5]}")
+            print(f"\nTop 20 {role} bit columns: {top20}")
+            print(f"Extracted bit indices (cleaned): {top_bits_cleaned}")
+            print(f"Bit mapping preview: {list(bit_mapping.items())[:5]}")
 
             visualize_top_bits_with_bitinfo(
                 top_bits=top_bits_cleaned,
@@ -157,4 +167,4 @@ def generate_morgan_shap_heatmap(
 
 
 
-    print(" Morgan SHAP heatmaps, summaries, and bit images saved.")
+    print("Morgan SHAP heatmaps, summaries, and bit images saved.")
